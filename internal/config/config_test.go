@@ -9,12 +9,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLoad_RequiresBotMode(t *testing.T) {
+func TestLoad_RejectsEmptyBotMode(t *testing.T) {
+	// envconfig treats set-but-empty as present (ok=true), so the explicit
+	// BotMode.Valid() check is what fires here, not the required:"true" tag.
 	t.Setenv("DATABASE_URL", "postgres://x")
 	t.Setenv("BOT_MODE", "")
 	_, err := Load("nonexistent.yaml")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "BOT_MODE")
+}
+
+func TestLoad_RejectsMalformedYAML(t *testing.T) {
+	dir := t.TempDir()
+	yamlPath := filepath.Join(dir, "bad.yaml")
+	require.NoError(t, os.WriteFile(yamlPath, []byte("risk:\n  max_total_leverage: [not, a, number\n"), 0o644))
+	t.Setenv("BOT_MODE", "dry_run")
+	t.Setenv("DATABASE_URL", "postgres://x")
+	_, err := Load(yamlPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "yaml parse")
 }
 
 func TestLoad_RejectsInvalidBotMode(t *testing.T) {

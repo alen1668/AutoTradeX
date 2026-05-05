@@ -1,3 +1,14 @@
+// Package config loads runtime config from environment variables and an
+// optional YAML overlay.
+//
+// Env-only fields (secrets, DB URL, HTTP listen, etc.) and YAML-only fields
+// (risk thresholds, ip whitelist, notifier endpoints, Binance URLs,
+// reconciler tuning) are partitioned: NO field has both an `envconfig` and
+// a `yaml` tag. Adding both to the same field would produce confusing
+// precedence (yaml currently wins because it loads second).
+//
+// Config carries plaintext secrets (WebhookSecret, SessionSecret, BinanceKey,
+// BinanceSecret, Notifier tokens). Never log a Config value directly.
 package config
 
 import (
