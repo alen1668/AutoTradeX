@@ -26,6 +26,12 @@ func TestDecide_AllEightCases(t *testing.T) {
 		{"short + Short", &VirtualPosition{Side: SideShort, Status: StatusOpen}, sigpkg.KindShort, ActionNoOp},
 		{"short + Long", &VirtualPosition{Side: SideShort, Status: StatusOpen}, sigpkg.KindLong, ActionCloseAndOpenLong},
 		{"short + ExitLong", &VirtualPosition{Side: SideShort, Status: StatusOpen}, sigpkg.KindExitLong, ActionNoOp},
+		// 已平仓的虚拟仓位等价于空仓（Status.IsActive() == false）
+		{"closed long + Long", &VirtualPosition{Side: SideLong, Status: StatusClosed}, sigpkg.KindLong, ActionOpenLong},
+		{"closed short + ExitLong", &VirtualPosition{Side: SideShort, Status: StatusClosed}, sigpkg.KindExitLong, ActionNoOp},
+		// 防御：未知或空 Kind 一律 no-op，宁可漏单也不下错单
+		{"empty kind on flat", nil, sigpkg.Kind(""), ActionNoOp},
+		{"garbage kind on long", &VirtualPosition{Side: SideLong, Status: StatusOpen}, sigpkg.Kind("hodl"), ActionNoOp},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

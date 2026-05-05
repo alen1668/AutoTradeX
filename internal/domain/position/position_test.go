@@ -24,3 +24,14 @@ func TestStatus_IsActive(t *testing.T) {
 	assert.True(t, StatusClosing.IsActive())
 	assert.False(t, StatusClosed.IsActive())
 }
+
+func TestStatus_OpeningCanShortcutToClosed(t *testing.T) {
+	// 开仓单失败/取消，从未真正成交时直接进 closed
+	assert.True(t, StatusOpening.CanTransitionTo(StatusClosed))
+}
+
+func TestStatus_UnknownSourceDeniesAll(t *testing.T) {
+	assert.False(t, Status("").CanTransitionTo(StatusOpen))
+	assert.False(t, Status("garbage").CanTransitionTo(StatusOpen))
+	assert.False(t, StatusClosed.CanTransitionTo(StatusClosed))
+}
