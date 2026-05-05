@@ -1,7 +1,6 @@
 # TradingView Webhook 自动交易机器人 — 设计文档
 
 - **日期**：2026-05-05
-- **作者**：lizhaojie56@gmail.com
 - **状态**：draft（待实施）
 - **目标**：从 0 到 1 搭建一套接收 TradingView 策略信号、自动在 Binance 永续合约下单、带止损/风控/管理后台的 MVP 交易机器人
 
