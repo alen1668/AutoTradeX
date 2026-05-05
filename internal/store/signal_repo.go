@@ -130,6 +130,21 @@ func (r *SignalRepo) ListRecent(ctx context.Context, q Querier, limit int) ([]*S
 	return out, rows.Err()
 }
 
+func (r *SignalRepo) ExistsByKey(ctx context.Context, q Querier, strategyID string, tvTimestampMs int64) (bool, error) {
+	var n int
+	err := q.QueryRow(ctx,
+		`SELECT 1 FROM signals WHERE strategy_id=$1 AND tv_timestamp_ms=$2 LIMIT 1`,
+		strategyID, tvTimestampMs,
+	).Scan(&n)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return false, err
+}
+
 func ipOrNil(ip net.IP) any {
 	if ip == nil {
 		return nil
