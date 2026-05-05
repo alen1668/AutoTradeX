@@ -1,6 +1,7 @@
 # Build artifacts
 /bin/
 /dist/
+/tvbot
 *.exe
 *.test
 *.out
