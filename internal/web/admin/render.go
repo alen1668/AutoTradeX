@@ -110,5 +110,16 @@ func (r *Renderer) Render(w http.ResponseWriter, status int, name string, data a
 	_, _ = buf.WriteTo(w)
 }
 
+// RenderPartial renders a single named partial (without layout). Useful for HTMX swaps.
+func (r *Renderer) RenderPartial(w http.ResponseWriter, name string, data any) error {
+	for _, t := range r.templates {
+		if t.Lookup(name) != nil {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			return t.ExecuteTemplate(w, name, data)
+		}
+	}
+	return fmt.Errorf("partial not found: %s", name)
+}
+
 // ensure embed import is used even if no other file references it
 var _ embed.FS

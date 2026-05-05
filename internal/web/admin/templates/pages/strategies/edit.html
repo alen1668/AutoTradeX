@@ -1,0 +1,47 @@
+{{ define "content" }}
+<h1 class="text-2xl font-bold mb-4">{{ if .IsNew }}新增策略{{ else }}编辑策略{{ end }}</h1>
+{{ if .Error }}
+<div class="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded mb-4">{{ .Error }}</div>
+{{ end }}
+<form method="POST" action="{{ if .IsNew }}/strategies{{ else }}/strategies/{{ .Strategy.ID }}{{ end }}" class="bg-white shadow rounded p-6 space-y-4 max-w-2xl">
+  <div class="grid grid-cols-2 gap-4">
+    <div>
+      <label class="block text-sm font-medium">策略 ID</label>
+      <input type="text" name="id" value="{{ .Strategy.ID }}" {{ if not .IsNew }}readonly{{ end }} required class="mt-1 w-full rounded border-gray-300 px-3 py-2">
+    </div>
+    <div>
+      <label class="block text-sm font-medium">币种</label>
+      <input type="text" name="symbol" value="{{ .Strategy.Symbol }}" placeholder="ETHUSDC" required class="mt-1 w-full rounded border-gray-300 px-3 py-2">
+    </div>
+    <div>
+      <label class="block text-sm font-medium">杠杆</label>
+      <input type="number" name="leverage" value="{{ .Strategy.Leverage }}" min="1" max="125" required class="mt-1 w-full rounded border-gray-300 px-3 py-2">
+    </div>
+    <div>
+      <label class="block text-sm font-medium">名义价值 (USDC)</label>
+      <input type="text" name="size_usdc" value="{{ .Strategy.SizeUSDC }}" required class="mt-1 w-full rounded border-gray-300 px-3 py-2">
+    </div>
+    <div>
+      <label class="block text-sm font-medium">止损 %</label>
+      <input type="text" name="stop_loss_pct" value="{{ .Strategy.StopLossPct }}" required class="mt-1 w-full rounded border-gray-300 px-3 py-2">
+    </div>
+    <div>
+      <label class="block text-sm font-medium">止盈 %（可空）</label>
+      <input type="text" name="take_profit_pct" value="{{ if .Strategy.TakeProfitPct.IsPositive }}{{ .Strategy.TakeProfitPct }}{{ end }}" class="mt-1 w-full rounded border-gray-300 px-3 py-2">
+    </div>
+    <div>
+      <label class="block text-sm font-medium">单策略未平仓上限 (USDC)</label>
+      <input type="text" name="max_open_usdc" value="{{ .Strategy.MaxOpenUSDC }}" required class="mt-1 w-full rounded border-gray-300 px-3 py-2">
+    </div>
+    <div class="flex items-end">
+      <label class="inline-flex items-center">
+        <input type="checkbox" name="enabled" {{ if .Strategy.Enabled }}checked{{ end }}> <span class="ml-2">启用</span>
+      </label>
+    </div>
+  </div>
+  <div class="flex space-x-2">
+    <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">保存</button>
+    <a href="/strategies" class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded">取消</a>
+  </div>
+</form>
+{{ end }}
