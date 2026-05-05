@@ -41,6 +41,7 @@ type OrderRequest struct {
 	Price          decimal.Decimal // for STOP (limit price) — optional
 	StopPrice      decimal.Decimal // trigger — for STOP / STOP_MARKET / TAKE_PROFIT_MARKET
 	ReferencePrice decimal.Decimal // tells DryRun what price to fill at; live impl ignores
+	Purpose        string          // "entry"|"exit"|"stop"|"backup_stop"|"take_profit"
 }
 
 type OrderResult struct {
@@ -52,8 +53,17 @@ type OrderResult struct {
 	FeesUSDC        decimal.Decimal
 }
 
-// Trader is the port for sending orders. Adapters: DryRunTrader, BinanceTrader (Plan 2B).
+// Position represents the trader's view of a current symbol position.
+type Position struct {
+	Symbol     string
+	Qty        decimal.Decimal // signed: positive = long, negative = short, zero = flat
+	EntryPrice decimal.Decimal
+}
+
+// Trader is the port for sending orders. Adapters: DryRunTrader, BinanceTrader.
 type Trader interface {
 	Place(ctx context.Context, req OrderRequest) (*OrderResult, error)
 	Cancel(ctx context.Context, symbol, clientOrderID string) error
+	GetOrder(ctx context.Context, symbol, clientOrderID string) (*OrderResult, error)
+	GetPositionRisk(ctx context.Context, symbol string) (*Position, error)
 }

@@ -17,6 +17,12 @@ import (
 	tradepkg "github.com/lizhaojie/tvbot/internal/trade"
 )
 
+// StepSizer returns the lot-size step for a given symbol. BinanceTrader
+// satisfies this interface; DryRunTrader also provides a no-op implementation.
+type StepSizer interface {
+	StepSize(ctx context.Context, symbol string) (decimal.Decimal, error)
+}
+
 // Service orchestrates open/close/stop coordination for virtual positions.
 type Service struct {
 	pool        *pgxpool.Pool
@@ -24,16 +30,25 @@ type Service struct {
 	posRepo     *store.VirtualPositionRepo
 	historyRepo *store.PositionHistoryRepo
 	trader      tradepkg.Trader
-	qtyStep     decimal.Decimal // floor step; 0.001 default
+	stepSizer   StepSizer
 }
 
 func NewService(pool *pgxpool.Pool, orderRepo *store.OrderRepo, posRepo *store.VirtualPositionRepo,
 	historyRepo *store.PositionHistoryRepo, trader tradepkg.Trader) *Service {
-	return &Service{
+	svc := &Service{
 		pool: pool, orderRepo: orderRepo, posRepo: posRepo, historyRepo: historyRepo,
-		trader:  trader,
-		qtyStep: decimal.NewFromFloat(0.001),
+		trader: trader,
 	}
+	// If the trader also implements StepSizer, use it by default.
+	if ss, ok := trader.(StepSizer); ok {
+		svc.stepSizer = ss
+	}
+	return svc
+}
+
+// WithStepSizer overrides the StepSizer used to look up lot-size step for a symbol.
+func (s *Service) WithStepSizer(ss StepSizer) {
+	s.stepSizer = ss
 }
 
 // OpenInput captures everything needed to open a virtual position.
@@ -57,13 +72,21 @@ type OpenResult struct {
 // protective order IDs, and marks the VP open. All DB writes are in one
 // transaction (acceptable for DryRun; Plan 2B will restructure for real orders).
 func (s *Service) OpenPosition(ctx context.Context, in OpenInput) (*OpenResult, error) {
-	// 1) Compute qty
+	// 1) Resolve qty step (from exchange info or fallback default)
+	qtyStep := decimal.NewFromFloat(0.001)
+	if s.stepSizer != nil {
+		if step, err := s.stepSizer.StepSize(ctx, in.Strategy.Symbol); err == nil && step.IsPositive() {
+			qtyStep = step
+		}
+	}
+
+	// Compute qty
 	notional := in.Strategy.NotionalUSDC()
 	rawQty := notional.Div(in.SignalPrice)
-	qty := floorTo(rawQty, s.qtyStep)
+	qty := floorTo(rawQty, qtyStep)
 	if !qty.IsPositive() {
 		return nil, fmt.Errorf("qty rounds to 0 (notional=%s price=%s step=%s)",
-			notional, in.SignalPrice, s.qtyStep)
+			notional, in.SignalPrice, qtyStep)
 	}
 
 	res := &OpenResult{Qty: qty}
@@ -97,6 +120,7 @@ func (s *Service) OpenPosition(ctx context.Context, in OpenInput) (*OpenResult, 
 			Type:           tradepkg.OrderTypeMarket,
 			Qty:            qty,
 			ReferencePrice: in.SignalPrice,
+			Purpose:        "entry",
 		})
 		if err != nil {
 			return fmt.Errorf("place entry: %w", err)
@@ -168,7 +192,7 @@ func (s *Service) placeProtectiveOrders(ctx context.Context, tx pgx.Tx, vpID int
 	stopRes, err := s.trader.Place(ctx, tradepkg.OrderRequest{
 		ClientOrderID: stopClientID, Symbol: strat.Symbol, Side: exitSide,
 		Type: tradepkg.OrderTypeStop, Qty: qty, Price: mainStopLimit, StopPrice: mainStopTrigger,
-		ReferencePrice: entryFill,
+		ReferencePrice: entryFill, Purpose: "stop",
 	})
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("place stop: %w", err)
@@ -189,7 +213,7 @@ func (s *Service) placeProtectiveOrders(ctx context.Context, tx pgx.Tx, vpID int
 	if _, err := s.trader.Place(ctx, tradepkg.OrderRequest{
 		ClientOrderID: backupClientID, Symbol: strat.Symbol, Side: exitSide,
 		Type: tradepkg.OrderTypeStopMarket, Qty: qty, StopPrice: backupTrigger,
-		ReferencePrice: entryFill,
+		ReferencePrice: entryFill, Purpose: "backup_stop",
 	}); err != nil {
 		return 0, 0, 0, fmt.Errorf("place backup_stop: %w", err)
 	}
@@ -211,7 +235,7 @@ func (s *Service) placeProtectiveOrders(ctx context.Context, tx pgx.Tx, vpID int
 		if _, err := s.trader.Place(ctx, tradepkg.OrderRequest{
 			ClientOrderID: tpClientID, Symbol: strat.Symbol, Side: exitSide,
 			Type: tradepkg.OrderTypeTakeProfitMarket, Qty: qty, StopPrice: tpTrigger,
-			ReferencePrice: entryFill,
+			ReferencePrice: entryFill, Purpose: "take_profit",
 		}); err != nil {
 			return 0, 0, 0, fmt.Errorf("place take_profit: %w", err)
 		}
@@ -284,6 +308,7 @@ func (s *Service) ClosePosition(ctx context.Context, in CloseInput) (*CloseResul
 		Type:           tradepkg.OrderTypeMarket,
 		Qty:            in.Qty,
 		ReferencePrice: in.ExitSignalPrice,
+		Purpose:        "exit",
 	})
 	if err != nil {
 		return nil, err

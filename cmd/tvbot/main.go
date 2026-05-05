@@ -17,6 +17,7 @@ import (
 	"github.com/lizhaojie/tvbot/internal/application/trade"
 	"github.com/lizhaojie/tvbot/internal/config"
 	"github.com/lizhaojie/tvbot/internal/idempotency"
+	binanceinfra "github.com/lizhaojie/tvbot/internal/infrastructure/binance"
 	ilog "github.com/lizhaojie/tvbot/internal/log"
 	"github.com/lizhaojie/tvbot/internal/notify"
 	"github.com/lizhaojie/tvbot/internal/risk"
@@ -79,11 +80,27 @@ func main() {
 	userRepo := store.NewUserRepo(pool)
 	_ = userRepo // used by AuthHandler; surfaced here for completeness
 
-	// ── trader (Plan 3 = dry-run only) ───────────────────────────────────────
-	dryRunTrader := tradepkg.NewDryRunTrader()
+	// ── trader factory (mode-based) ──────────────────────────────────────────
+	var trader tradepkg.Trader
+	switch cfg.BotMode {
+	case config.ModeTestnet, config.ModeLive:
+		bt := binanceinfra.New(cfg.Binance, cfg.BinanceKey, cfg.BinanceSecret, cfg.BotMode, logger)
+		trader = bt
+		// Application service will pick up bt as StepSizer automatically via
+		// the interface check in NewService; explicit set for clarity.
+		_ = bt // assigned below after tradeSvc is created
+	default: // dry_run
+		trader = tradepkg.NewDryRunTrader()
+	}
 
 	// ── application services ─────────────────────────────────────────────────
-	tradeSvc := trade.NewService(pool, orderRepo, posRepo, historyRepo, dryRunTrader)
+	tradeSvc := trade.NewService(pool, orderRepo, posRepo, historyRepo, trader)
+
+	// For testnet/live: inject BinanceTrader as StepSizer (already done by
+	// NewService's interface check, but be explicit for clarity).
+	if bt, ok := trader.(*binanceinfra.Trader); ok {
+		tradeSvc.WithStepSizer(bt)
+	}
 
 	idem := idempotency.NewChecker(10000, signalRepo).WithPool(pool)
 
