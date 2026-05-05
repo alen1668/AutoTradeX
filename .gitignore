@@ -4,7 +4,6 @@
 *.exe
 *.test
 *.out
-/bin/tvbot
 
 # Go
 vendor/
