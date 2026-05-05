@@ -1,249 +1,577 @@
 # tvbot — TradingView Webhook 自动交易机器人
 
-一个单 Go 二进制程序，接收 TradingView 策略告警（通过 HTTPS webhook），经过风控流水线处理后，在币安 USDT/USDC-M 永续合约上执行交易订单。状态持久化存储于 PostgreSQL。内置 HTMX 管理后台，提供实时可视化和系统控制功能。
+一个**单 Go 二进制** + PostgreSQL 的自动交易系统：接收 TradingView 策略信号 → 风控 → 在币安 USDT/USDC-M 永续合约上自动下单。带 HTMX Web 后台，所有运行时配置可在浏览器里改。
 
 ---
 
-## 概览 (Overview)
+## 目录
 
-- **Webhook 接收**：TradingView 向 `/webhook/tv` 发送 JSON 载荷。接收流水线验证 HMAC 签名、检查幂等性、执行风控规则，并下发交易指令。
-- **风控流水线**：IP 白名单、单策略最大仓位限制、总杠杆上限、日亏熔断。
-- **交易模式**：DryRun（以信号价格模拟成交）、Testnet（币安合约测试网）、Live（真实执行）。
-- **虚拟持仓核算**：多策略盈亏独立追踪，部分成交时按 FIFO 逻辑对账。
-- **通知**：在成交/拒绝事件时推送飞书和/或 Telegram 消息。
-- **管理后台**：基于 HTMX，需登录鉴权。支持启动/停止系统、管理策略、查看持仓和信号。
-
----
-
-## 系统架构 (Architecture)
-
-```
-TradingView ──webhook──► /webhook/tv ──► [parse → idempotency → risk → decide → trade → notify]
-                                                                                    │
-                              ┌─ Binance Futures API ◄──── Trader (DryRun/Binance)  │
-                              │
-PostgreSQL ◄──── repos ◄──── application/{ingest,trade,reconcile}                  │
-                                                                                    │
-                                                    Notifier (Feishu / Telegram) ◄──┘
-```
-
-核心包说明：
-
-| 包路径 | 职责 |
-|---|---|
-| `internal/application/ingest` | Webhook 解析、幂等检查、风控流水线编排 |
-| `internal/application/trade` | 下单、虚拟持仓追踪 |
-| `internal/application/reconcile` | 后台成交对账、启动时恢复 |
-| `internal/risk` | IP 白名单、最大仓位、杠杆上限、日亏熔断 |
-| `internal/store` | PostgreSQL 数据访问层（信号、订单、持仓、策略、系统状态） |
-| `internal/web/admin` | HTMX 管理后台处理器 |
-| `internal/web/middleware` | 会话鉴权中间件、IP 白名单 HTTP 中间件 |
-| `internal/infrastructure/binance` | 币安合约 REST 客户端（live + testnet） |
+1. [它能做什么](#它能做什么)
+2. [快速开始（5 分钟跑通）](#快速开始5-分钟跑通)
+3. [给完全新手的 TradingView 配置教程](#给完全新手的-tradingview-配置教程)
+4. [运行模式（dry_run / testnet / live）](#运行模式)
+5. [运维操作](#运维操作)
+6. [配置参考](#配置参考)
+7. [部署到生产](#部署到生产)
+8. [测试](#测试)
+9. [架构](#架构)
+10. [常见问题](#常见问题-faq)
 
 ---
 
-## 快速开始 (Quick Start, 5 分钟)
+## 它能做什么
 
-**前置条件**：Go 1.23+ 和 Docker（或本地 Postgres 16+ 实例）。
+- 接 TradingView 任何策略的 alert（Pine Script 内置或自写）
+- 自动在币安永续合约下单，**支持双重止损**（限价止损 + 市价兜底）+ 止盈
+- **多策略并行**：同一个币种可同时跑多个策略，虚拟仓位记账，共用 1 个 API Key
+- 4 项风控：单策略最大未平仓金额、全局总杠杆上限、日亏熔断、IP 白名单
+- 三档安全模式：dry_run（不下真单）/ testnet（币安测试网）/ live（实盘）
+- 重启自动 disarm，必须手动点「启动交易」才会接单
+- 飞书 + Telegram 双渠道告警
+- Web 后台改配置实时生效（部分需重启，UI 有标注）
+
+---
+
+## 快速开始（5 分钟跑通）
+
+### 前置条件
+
+- **macOS / Linux**（Windows 用 WSL2）
+- **Go 1.23+**：`go version` 检查；没有的话 `brew install go` 或 https://go.dev/dl/
+- **Docker Desktop / OrbStack / colima**：用于跑 PostgreSQL；OrbStack 推荐（`brew install --cask orbstack`）
+
+### 一键启动
 
 ```bash
-# 克隆仓库
-git clone <repo-url> && cd crypto
+# 1. 克隆代码
+git clone git@github.com:alen1668/AutoTradeX.git tvbot
+cd tvbot
 
-# 启动 Postgres
+# 2. 启动 PostgreSQL（容器）
 make pg-up
 make migrate-up
 
-# 编译二进制
-make build
-
-# 配置
+# 3. 准备配置文件
 cp config/config.yaml.example config/config.yaml
 cp .env.example .env
-$EDITOR .env   # set BOT_MODE, WEBHOOK_SECRET, SESSION_SECRET at minimum
 
-# 创建第一个管理员账号（交互式提示）
-./bin/tvbot seed-user
+# 4. 编辑 .env 至少改下面这几个值
+$EDITOR .env
+```
 
-# 运行
+`.env` 里**必须改**的（其他可以先用默认）：
+
+```bash
+BOT_MODE=dry_run                                      # 第一次跑用 dry_run，不会下真单
+WEBHOOK_SECRET=随便起个长一点的密码-比如至少20位         # 等下要在 TradingView 里填的密钥
+SESSION_SECRET=please-change-me-please-change-me      # 至少 32 字节，浏览器登录 cookie 加密用
+```
+
+```bash
+# 5. 编译并启动
+make build
 ./bin/tvbot
 ```
 
-然后在浏览器中打开 http://localhost:8080/login。
+启动成功会打印：
 
-### Docker Compose（另一种方式）
+```
+================================
+        tvbot starting          
+  mode: dry_run
+  armed: false (run /system/arm to enable)
+================================
+{"level":"info","message":"http listening","addr":"0.0.0.0:8080"}
+```
+
+### 创建管理员账号
+
+**另开一个终端**（让 bot 继续在前台跑）：
 
 ```bash
-cp .env.example .env
-$EDITOR .env   # configure secrets
-
-# 仅启动 postgres（先手动执行迁移）
-docker compose up -d postgres
-make migrate-up
-
-# 再启动 bot
-docker compose up -d bot
+./bin/tvbot seed-user
+# Username: alen        ← 自己起
+# Password: ******      ← 至少 8 位
 ```
+
+### 浏览器登录
+
+打开 http://localhost:8080/login，用刚才创建的账号登录。看到导航栏有「策略 / 持仓 / 信号 / 系统 / 统计 / 配置」就成功了。
+
+> 如果看到「启动 bot 后端」的命令需要环境变量太多，可以这样一行起来：
+> ```bash
+> BOT_MODE=dry_run \
+> DATABASE_URL=postgres://tvbot:tvbot@localhost:5432/tvbot?sslmode=disable \
+> WEBHOOK_SECRET=$(grep WEBHOOK_SECRET .env | cut -d= -f2) \
+> SESSION_SECRET=$(grep SESSION_SECRET .env | cut -d= -f2) \
+> ./bin/tvbot
+> ```
 
 ---
 
-## TradingView 告警配置 (TradingView Alert Setup)
+## 给完全新手的 TradingView 配置教程
 
-在您的 TradingView 策略中，创建一个指向以下地址的 webhook 告警：
+> 看这部分前请确保你**已经登录到 bot 后台**（http://localhost:8080）。
+
+整个数据流是这样：
 
 ```
-https://<your-domain>/webhook/tv
+TradingView 服务器（云端） ─── HTTPS POST ──► 你的公网 URL ──► 你的 bot ──► 币安
 ```
 
-使用如下 JSON 消息模板：
+TradingView 在云端跑，它**不能**直接访问你电脑上的 `localhost:8080`，必须给它一个公网 HTTPS 地址。下面我们一步步来。
+
+---
+
+### 第 1 步：把本地 bot 暴露到公网（Cloudflare Tunnel）
+
+Cloudflare 提供**免费**的 tunnel 服务，零配置就能给你一个临时公网域名。
+
+**1.1 装 cloudflared**：
+
+```bash
+# macOS
+brew install cloudflared
+
+# 验证装上了
+cloudflared --version
+```
+
+**1.2 启动 tunnel**（**保持这个终端不要关**）：
+
+```bash
+cloudflared tunnel --url http://127.0.0.1:8080
+```
+
+输出里找到这一行（每次启动都会变）：
+
+```
+2026-05-06T02:30:15Z INF +--------------------------------------------------------------------------------------------+
+2026-05-06T02:30:15Z INF |  Your quick Tunnel has been created! Visit it at (it may take some time to be reachable):  |
+2026-05-06T02:30:15Z INF |  https://random-words-xxxx-yyyy.trycloudflare.com                                          |
+2026-05-06T02:30:15Z INF +--------------------------------------------------------------------------------------------+
+```
+
+**`https://random-words-xxxx-yyyy.trycloudflare.com` 就是你的 webhook 公网入口**。复制它。
+
+**1.3 验证**：另开一个终端测试：
+
+```bash
+curl https://random-words-xxxx-yyyy.trycloudflare.com/healthz
+# 应该返回: ok
+```
+
+如果返回 `ok` 就说明 TV → tunnel → bot 的链路通了。
+
+> 💡 **关于 trycloudflare 临时域名**：免费版每次重启 cloudflared 域名会变。长期用建议绑你自己的域名，参考 [Cloudflare Tunnel 文档](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)。或者用 ngrok（`brew install ngrok` + `ngrok http 8080`）。
+
+---
+
+### 第 2 步：bot 后台准备工作
+
+#### 2.1 关闭 IP 白名单（开发期）
+
+打开 http://localhost:8080/settings → **IP 白名单** 区块。
+
+**把 textarea 里的内容全部清空** → 点「保存白名单」。
+
+> ⚠️ 为什么要清空？因为 webhook 经过 Cloudflare Tunnel 转发，到 bot 时**源 IP 是 Cloudflare 的服务器，不是 TradingView 真实 IP**。如果保留 TV 官方 IP 白名单，请求会被拒绝。
+>
+> 上线后想加白名单，需要把 Cloudflare 的反向代理 IP 段加上，**但这种情况下其实 secret 鉴权就够安全了**。
+
+#### 2.2 设置 Webhook Secret
+
+打开 http://localhost:8080/settings → **高级配置** 区块。
+
+在 **Webhook Secret** 输入框填一个**强密码**（至少 20 位随机字符）。这个值 TradingView 那边等会要填一样的。点「保存高级配置」。
+
+> ⚠️ 别用简单密码（`123456`、`password` 之类）。你的 webhook URL 是公网可达的，secret 是唯一的鉴权防线。
+>
+> 生成强密码：`openssl rand -hex 24`
+
+#### 2.3 创建你的第一个策略
+
+打开 http://localhost:8080/strategies → 「**新增**」按钮。
+
+填写表单（示例：跑 ETH 的策略）：
+
+| 字段 | 示例值 | 说明 |
+|------|------|------|
+| 策略 ID | `macd_eth_long` | 唯一标识，在 TradingView 那边要填一模一样 |
+| 币种 | `ETHUSDC` | 必须是 Binance USDT-M 永续支持的币种 |
+| 杠杆 | `5` | 1-125，建议先用 3-5 倍 |
+| 名义价值 (USDC) | `100` | 每次开仓的本金（不含杠杆放大） |
+| 止损 % | `1.5` | 触发价 = 入场价 ± 1.5% |
+| 止盈 % | `3.0` | 留空表示不挂止盈单 |
+| 单策略未平仓上限 (USDC) | `500` | 防止单策略风险过度集中 |
+| 启用 | ✓ | 勾上 |
+
+点「保存」。
+
+#### 2.4 启动交易
+
+回到 http://localhost:8080/system → 看到大色块写「**已停止**」。
+
+点 **绿色按钮「启动交易（arm）」**。状态变成「**已启动**」。
+
+> 🛡️ 每次重启 bot 进程都会自动 disarm（崩溃保护），必须手动 arm 一次才会真接单。这是设计的安全机制。
+
+---
+
+### 第 3 步：在 TradingView 网站上配置告警
+
+打开 https://tradingview.com 登录账号。
+
+#### 3.1 打开你想用的图表
+
+随便打开一个币种（比如 ETHUSDC）的图表。**确认图表上面已经加载了你的策略**——左上角策略图层（默认 Pine Script 内置策略，或者你自己写的策略）。
+
+> 没有自己的策略？可以先用 TradingView 内置的一个简单策略测试，比如「Bollinger Bands Strategy」（图表 → 指标 → 搜索「Bollinger Bands Strategy」→ 添加到图表）。
+
+#### 3.2 创建告警
+
+按 **Alt+A**（Windows）或 **Option+A**（Mac），或点图表右上角 **🔔 闹钟图标** → **创建告警**。
+
+弹出的对话框分为「设置（Settings）」「通知（Notifications）」「条件（Condition）」三个 tab。
+
+#### 3.3 「条件 (Condition)」tab
+
+第一个下拉框选 **你刚加的策略名**。
+
+第二个下拉框选触发条件：
+- **「Order Fills Only」**（推荐）：策略每次下单（开仓/平仓）都触发，最简单
+- 也可以选具体的 `entry long`/`exit long` 等
+
+#### 3.4 「通知 (Notifications)」tab
+
+向下滚动找到 **「Webhook URL」** 选项 → **打勾启用**。
+
+URL 填：
+
+```
+https://random-words-xxxx-yyyy.trycloudflare.com/webhook/tv
+```
+
+⚠️ **末尾的 `/webhook/tv` 路径不要漏！**
+
+> 💡 **Webhook URL 是 TradingView 付费功能**：免费账号没有 webhook，至少需要 Pro 套餐（最便宜约 $14.95/月）。不想付费可以先用 dry_run 模式 + curl 手动测试（见下面 FAQ）。
+
+#### 3.5 「设置 (Settings)」tab → 消息（Message）
+
+把消息框的内容**完全替换**为这段 JSON：
 
 ```json
 {
-  "strategy_id": "macd_eth_high",
+  "strategy_id": "macd_eth_long",
   "symbol": "{{ticker}}",
   "signal": "{{strategy.order.action}}",
   "price": "{{close}}",
   "timestamp": {{time}},
-  "secret": "<your-webhook-secret>"
+  "secret": "你在 bot 后台设的 webhook secret"
 }
 ```
 
-- `strategy_id` 必须与 `strategies` 表中的某一行匹配（通过管理后台创建）。
-- `signal` 取值：`buy`、`sell`、`close_long`、`close_short`。
-- `secret` 必须与 `.env` 中的 `WEBHOOK_SECRET` 一致。
+**必须改的两处**：
 
-`config/config.yaml` 中的 IP 白名单已预置 TradingView 官方出口 IP：
+1. `"strategy_id": "macd_eth_long"` —— 改成你在 bot 后台 /strategies 创建的那个 ID
+2. `"secret": "..."` —— 改成你在 /settings 里设的 Webhook Secret
 
-```yaml
-ip_whitelist:
-  - 52.89.214.238
-  - 34.212.75.30
-  - 54.218.53.128
-  - 52.32.178.7
-  - 127.0.0.1   # local dev / cloudflared loopback
+**不要动**的：`{{ticker}}`、`{{strategy.order.action}}`、`{{close}}`、`{{time}}` 这些是 TradingView 的占位符，触发时自动替换。
+
+#### 3.6 创建告警
+
+点对话框右下角 **「创建」** 按钮。
+
+#### 3.7 测试触发
+
+回到 TradingView 主界面 → 右侧栏 **🔔 告警面板** → 找到刚创建的告警 → 点 **⋯ 三个点 → 「触发」**（有的版本叫「Test」或「Send notification」）。
+
+立刻去 bot 后台 http://localhost:8080/signals 刷新——应该看到一条新记录：
+
+| 时间 | 策略 | 方向 | decision |
+|------|-----|------|---------|
+| 刚刚 | macd_eth_long | long/short | accepted ✅ |
+
+如果 decision 是其他值，参考下面的 [常见错误对照表](#常见错误对照表)。
+
+---
+
+## 运行模式
+
+| 模式 | 是否真下单 | 用途 |
+|------|----------|------|
+| `dry_run` | ❌ 完全模拟 | 开发期，验证链路通畅 |
+| `testnet` | ✅ 但是测试币 | 币安测试网，验证下单逻辑 |
+| `live` | ✅ 真钱 | 生产 |
+
+切换模式：改 `.env` 的 `BOT_MODE` → 重启 bot。
+
+**testnet 怎么玩**：
+
+1. 注册 https://testnet.binancefuture.com 拿 API Key/Secret（注意是 *testnet* 的）
+2. bot 后台 http://localhost:8080/settings → **币安 API** 区块 → 填 testnet 的 key/secret → 保存
+3. `.env` 改 `BOT_MODE=testnet` → 重启 bot
+
+**live 上线 checklist**：
+
+- [ ] 已经在 testnet 跑通完整流程（开仓 + 止损触发 + 平仓）
+- [ ] 币安官网创建 API Key，**勾选「Enable Futures Trading」**，**不勾「Enable Withdrawals」**
+- [ ] API Key 设置 IP 白名单（你的服务器 IP）
+- [ ] bot 后台填入 live key/secret
+- [ ] 用最小 size_usdc（比如 10）跑一笔验证
+- [ ] 监控 telegram/飞书告警是否能收到
+
+---
+
+## 运维操作
+
+### 启动/停止交易
+
+后台 http://localhost:8080/system 上有大按钮，或：
+
+```bash
+# 启动
+curl -X POST http://localhost:8080/system/arm   # 需要 cookie
+
+# 停止（紧急）
+curl -X POST http://localhost:8080/system/disarm
+```
+
+### 日亏熔断
+
+当日累计亏损（`system_state.daily_pnl_usdc`）跌破 `-max_daily_loss_usdc` 时：
+- ❌ 所有**新开仓**信号被拒（decision=risk_denied）
+- ✅ **平仓**信号正常处理（避免熔断卡死现有持仓）
+- 每天 UTC 0 点自动重置
+
+手动重置：`/system` 页面有按钮（仅在熔断触发时显示）。
+
+### 查看实时日志
+
+```bash
+# bot 在前台跑：直接看终端
+# bot 在后台跑：
+tail -f /tmp/tvbot.log
+
+# 关键事件 grep
+grep -E '"event":"order_filled|stop_loss_triggered|breaker_tripped"' /tmp/tvbot.log
+```
+
+### 后台对账
+
+每 30 秒（可在 /settings 改）一次后台 goroutine 检查未结订单，从交易所同步真实状态。**启动时**还会跑一次完整恢复（防止 bot 崩溃期间漏掉的成交）。
+
+---
+
+## 配置参考
+
+> 大部分配置都可以在 **bot 后台** http://localhost:8080/settings 修改。env 和 yaml 只是**首次启动**的初始值，之后 DB 是事实源。
+
+### env 变量（`.env`）
+
+这些**只能在 env 里**（不能通过后台改）：
+
+| 变量 | 必须？ | 说明 |
+|------|------|------|
+| `BOT_MODE` | ✅ | `dry_run` / `testnet` / `live` |
+| `DATABASE_URL` | ✅ | Postgres 连接串 |
+| `SESSION_SECRET` | ✅ | 浏览器 cookie 加密，至少 32 字节 |
+| `HTTP_LISTEN` | | 默认 `0.0.0.0:8080` |
+| `LOG_LEVEL` | | `debug` / `info` / `warn` / `error` |
+| `WEBHOOK_SECRET` | 首次 | 仅作为首次启动 bootstrap 到 DB；之后改后台为准 |
+| `BINANCE_API_KEY` | 首次 | 同上 |
+| `BINANCE_API_SECRET` | 首次 | 同上 |
+
+### Web 后台 `/settings` 可改（运行时）
+
+| 配置 | 是否实时生效 |
+|------|---------|
+| 风控阈值（max_total_leverage、max_daily_loss_usdc） | ✅ 实时 |
+| Webhook Secret | ✅ 实时 |
+| IP 白名单 | ✅ 实时 |
+| 飞书 webhook URL | ❌ 需重启 bot |
+| Telegram bot token / chat ID | ❌ 需重启 bot |
+| Binance API Key/Secret | ❌ 需重启 bot |
+| Reconciler 周期（秒） | ❌ 需重启 bot |
+| Binance recv_window / 下单超时 | ❌ 需重启 bot |
+
+---
+
+## 部署到生产
+
+### 方案 1：单 VPS + Cloudflare Tunnel（推荐）
+
+```bash
+# 在 VPS 上
+git clone git@github.com:alen1668/AutoTradeX.git tvbot
+cd tvbot
+cp .env.example .env && $EDITOR .env
+
+# docker-compose 把 bot + postgres 一起起
+docker compose up -d
+
+# 装 cloudflared 并配置永久 tunnel（绑你的域名）
+brew install cloudflared
+cloudflared tunnel login
+cloudflared tunnel create tvbot
+cloudflared tunnel route dns tvbot bot.yourdomain.com
+cloudflared tunnel run tvbot
+```
+
+之后 TradingView 填 `https://bot.yourdomain.com/webhook/tv`。
+
+### 方案 2：Caddy 反代 + Let's Encrypt
+
+```caddyfile
+bot.yourdomain.com {
+    reverse_proxy localhost:8080
+}
+```
+
+Caddy 自动申请证书。
+
+### 方案 3：systemd（裸金属）
+
+```bash
+make build
+sudo cp bin/tvbot /usr/local/bin/tvbot
+sudo cp .env /etc/tvbot.env
+
+cat <<EOF | sudo tee /etc/systemd/system/tvbot.service
+[Unit]
+Description=tvbot
+After=network.target postgresql.service
+
+[Service]
+EnvironmentFile=/etc/tvbot.env
+ExecStart=/usr/local/bin/tvbot
+Restart=on-failure
+User=tvbot
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl enable --now tvbot
 ```
 
 ---
 
-## 运行模式 (Modes)
-
-| 模式 | 说明 |
-|---|---|
-| `dry_run` | 不调用交易所接口，按信号价格模拟成交 |
-| `testnet` | 在币安合约测试网执行（https://testnet.binancefuture.com） |
-| `live` | 真实资金交易，需要配置 `BINANCE_API_KEY` + `BINANCE_API_SECRET` |
-
-通过 `BOT_MODE` 环境变量设置，程序启动时会打印当前模式。
-
----
-
-## 运维操作 (Operations)
-
-### 启动与停止 (Arming and Disarming)
-
-系统启动后默认处于**停止状态**。在管理后台点击**启动交易**（或 POST `/system/arm`）之前，所有入场信号均被拒绝。这是一项纵深防御机制——每次重启后都需要主动重新启动。
-
-停止交易无需重启：点击**停止交易**或 POST `/system/disarm`。
-
-### 日亏熔断 (Daily PnL Circuit Breaker)
-
-当 `system_state.daily_pnl_usdc` 跌破 `-max_daily_loss_usdc`（在 `config/config.yaml` 的 `risk.max_daily_loss_usdc` 中配置）时，所有入场信号自动被拒绝，平仓信号（close）仍正常处理。
-
-手动重置熔断：POST `/system/breaker/reset` 或使用管理后台按钮。
-
-熔断在 UTC 午夜自动重置。
-
-### 后台对账 (Background Reconciler)
-
-一个 goroutine 每隔 `reconciler.interval_seconds`（默认 30 秒）轮询未结订单，从交易所同步成交状态。启动时会执行一次恢复扫描，关闭所有孤立的未结订单。
-
----
-
-## 测试 (Tests)
+## 测试
 
 ```bash
 # 单元测试（无外部依赖）
 go test -race ./...
 
-# 集成测试（需要 Postgres —— 使用 dockertest 自动拉起容器）
+# 集成测试（自动起 dockertest postgres）
 go test -tags=integration -race ./...
 
-# 实盘测试网冒烟测试（需要币安测试网密钥）
-BINANCE_API_KEY=... BINANCE_API_SECRET=... \
+# 币安 testnet 实测（需 API key）
+BINANCE_TESTNET_KEY=xxx BINANCE_TESTNET_SECRET=yyy \
   go test -tags=integration_binance ./internal/infrastructure/binance/...
 ```
 
-CI 在每次推送时通过 GitHub Actions（`.github/workflows/ci.yml`）运行单元测试和集成测试。
+CI 配置在 `.github/workflows/ci.yml`，每次 push 自动跑。
 
 ---
 
-## 配置参考 (Configuration Reference)
+## 架构
 
-### 环境变量（`.env`）
-
-| 变量名 | 是否必须 | 默认值 | 说明 |
-|---|---|---|---|
-| `BOT_MODE` | 是 | — | `dry_run`、`testnet` 或 `live` |
-| `DATABASE_URL` | 是 | — | PostgreSQL 连接字符串 |
-| `WEBHOOK_SECRET` | 是 | — | 与 TradingView 共享的 HMAC 密钥 |
-| `SESSION_SECRET` | 是 | — | 管理后台会话 Cookie 的密钥，须 32 字符以上 |
-| `HTTP_LISTEN` | 否 | `0.0.0.0:8080` | TCP 监听地址 |
-| `LOG_LEVEL` | 否 | `info` | `debug`、`info`、`warn`、`error` |
-| `BINANCE_API_KEY` | live/testnet | — | 币安 API Key（首次启动时写入 DB；后续可在 /settings 页面修改） |
-| `BINANCE_API_SECRET` | live/testnet | — | 币安 API Secret（同上） |
-
-### YAML 配置（`config/config.yaml`）
-
-| 配置项 | 默认值 | 说明 |
-|---|---|---|
-| `risk.max_total_leverage` | `3.0` | 所有活跃仓位名义价值之和 ÷ 账户权益不得超过此倍数 |
-| `risk.max_daily_loss_usdc` | `500` | 日亏熔断阈值（USDC） |
-| `ip_whitelist` | TradingView 官方 IP + 127.0.0.1 | `/webhook/tv` 的 CIDR/IP 白名单；为空则允许所有来源 |
-| `reconciler.interval_seconds` | `30` | 成交对账轮询间隔（秒） |
-
----
-
-## 部署 (Deployment)
-
-### Docker Compose
-
-```bash
-cp .env.example .env
-$EDITOR .env   # configure all secrets
-
-docker compose up -d postgres
-make migrate-up         # apply DB schema
-docker compose up -d bot
+```
+TradingView ─webhook─► /webhook/tv ─► [parse → idempotent → risk → decide → trade → notify]
+                                                                          │
+                          ┌─ Binance Futures API ◄─── Trader (DryRun/Live)│
+                          │
+PostgreSQL ◄── repos ◄── application/{ingest,trade,reconcile}             │
+                                                                          │
+                                       Notifier (Feishu/Telegram) ◄───────┘
 ```
 
-### 裸机部署（systemd）
+| 包路径 | 职责 |
+|--------|------|
+| `cmd/tvbot` | 进程入口，装配依赖 |
+| `internal/application/ingest` | 信号摄入完整管道 |
+| `internal/application/trade` | 开仓 / 平仓 / 双止损挂单 |
+| `internal/application/reconcile` | 订单对账 + 启动恢复 |
+| `internal/risk` | 4 个风控规则 |
+| `internal/store` | Postgres 数据访问层 |
+| `internal/web` | HTTP 入口、admin UI、middleware |
+| `internal/infrastructure/binance` | 币安 SDK 封装（live + testnet） |
+| `internal/notify` | 飞书 + Telegram |
+| `internal/idempotency` | LRU + DB 双层去重 |
+
+---
+
+## 常见问题 FAQ
+
+### Q: TradingView 没付费 webhook 能用吗？
+
+A: 不能，免费账号没 webhook 功能。但你可以**用 curl 手动测试整个链路**：
 
 ```bash
-make build
-sudo cp bin/tvbot /usr/local/bin/tvbot
-# create /etc/tvbot.env with all env vars
-sudo systemctl enable --now tvbot
+curl -X POST http://localhost:8080/webhook/tv \
+  -H 'Content-Type: application/json' \
+  -d '{"strategy_id":"macd_eth_long","symbol":"ETHUSDC","signal":"Long","price":"2300","timestamp":1714900000000,"secret":"你的-webhook-secret"}'
 ```
 
-### HTTPS（TradingView 要求）
+返回 `{"decision":"accepted","action":"open_long"}` 就说明 bot 端没问题。
 
-TradingView 仅向 HTTPS 地址推送告警。推荐方案：
+### Q: 启动后 webhook 收到都是 `decision: "duplicate"` 怎么办？
 
-- **Cloudflare Tunnel**（`cloudflared`）——零成本，无需公网 IP。Bot 监听 `localhost:8080`，cloudflared 通过您的域名对外暴露。
-- **Caddy**——在 Caddyfile 中添加 `reverse_proxy localhost:8080`，Caddy 自动申请 Let's Encrypt 证书。
-- **云负载均衡器**——在负载均衡器处终止 TLS，将 HTTP 请求转发给 Bot。
+A: TradingView 重发同一信号时，bot 通过 `(strategy_id, timestamp)` 去重。要么改 timestamp、要么这本来就是重复信号。看 /signals 页对应行的 reason。
 
-在 cloudflared 等回环隧道后运行时，IP 提取依赖 `X-Forwarded-For` 头（因为此时 `RemoteAddr` 为 `127.0.0.1`）。
+### Q: `decision: "disarmed"` 是什么意思？
+
+A: 系统是「停止交易」状态。去 /system 页面点「启动交易」按钮。每次重启都会自动 disarm，这是安全设计。
+
+### Q: `decision: "risk_denied"` 怎么看具体哪条规则拒了？
+
+A: /signals 页面那条信号的 `reason` 字段会写：
+- `notional ... > strategy.max_open_usdc` → 单策略上限
+- `leverage ... > max_total_leverage` → 总杠杆
+- `daily loss ... > max` → 日亏熔断
+- `ip ... not in whitelist` → IP 白名单（注意 tunnel 转发的源 IP 问题）
+
+### 常见错误对照表
+
+| 现象 | 原因 | 解决 |
+|-----|------|------|
+| TV 触发后 bot 没收到任何东西 | tunnel 没起 / URL 错 | 验证 `curl https://your-tunnel/healthz` 返回 ok |
+| 收到但 `decision=invalid, reason=secret mismatch` | TV 那边的 secret 和 bot 的不一致 | 检查 /settings 的 Webhook Secret 和 TV alert 消息里的 `secret` 字段 |
+| 收到但 `decision=invalid, reason=signal required` | TV 消息不是 JSON 格式 | 检查 alert message 是否原样复制了上面的 JSON 模板 |
+| 收到但 `decision=risk_denied, reason=ip ... not in whitelist` | tunnel 转发的源 IP 不在白名单 | /settings 清空白名单，或加上 cloudflare 出口 IP |
+| 收到但 `decision=disarmed` | 系统未启动 | /system 点「启动交易」 |
+| 信号正常但实际没下单（dry_run） | 你在 dry_run 模式 | 这是正常的，dry_run 只记录到 DB 不调交易所 |
+
+### Q: 我能多人共用一个 bot 实例吗？
+
+A: 现在 MVP 设计是单用户单账户。多人多 API Key 隔离没做（spec §1.3 列入 V2）。
+
+### Q: 怎么备份数据？
+
+A: 备份 PostgreSQL：
+
+```bash
+docker exec crypto-postgres-1 pg_dump -U tvbot tvbot > backup.sql
+```
+
+恢复：
+
+```bash
+cat backup.sql | docker exec -i crypto-postgres-1 psql -U tvbot -d tvbot
+```
+
+### Q: 我要上线生产前还有什么坑？
+
+参考运行模式章节的 **live 上线 checklist**。最关键的几条：
+
+1. **必须先 testnet 跑通完整流程**
+2. **API Key 不要授予提币权限**（被盗也只能交易，资金安全）
+3. **API Key 设 IP 白名单**（VPS 公网 IP）
+4. **第一笔单用最小 size_usdc**（比如 10 USDC）
 
 ---
 
-## 架构深度解析 (Architecture Deep Dive)
-
-完整设计文档请参阅：
-[`docs/superpowers/specs/2026-05-05-tradingview-webhook-bot-design.md`](docs/superpowers/specs/2026-05-05-tradingview-webhook-bot-design.md)
-
----
-
-## 许可证 (License)
+## 许可证
 
 MIT — 详见 [LICENSE](LICENSE)。
