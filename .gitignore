@@ -44,3 +44,7 @@ coverage.html
 
 # Local docker overrides
 docker-compose.override.yml
+
+# Reference material / internal design docs (kept local, not published)
+images/
+docs/
