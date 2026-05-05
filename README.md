@@ -7,15 +7,16 @@
 ## 目录
 
 1. [它能做什么](#它能做什么)
-2. [快速开始（5 分钟跑通）](#快速开始5-分钟跑通)
-3. [给完全新手的 TradingView 配置教程](#给完全新手的-tradingview-配置教程)
-4. [运行模式（dry_run / testnet / live）](#运行模式)
-5. [运维操作](#运维操作)
-6. [配置参考](#配置参考)
-7. [部署到生产](#部署到生产)
-8. [测试](#测试)
-9. [架构](#架构)
-10. [常见问题](#常见问题-faq)
+2. [需要先注册的账号](#需要先注册的账号)
+3. [快速开始（5 分钟跑通）](#快速开始5-分钟跑通)
+4. [给完全新手的 TradingView 配置教程](#给完全新手的-tradingview-配置教程)
+5. [运行模式（dry_run / testnet / live）](#运行模式)
+6. [运维操作](#运维操作)
+7. [配置参考](#配置参考)
+8. [部署到生产](#部署到生产)
+9. [测试](#测试)
+10. [架构](#架构)
+11. [常见问题](#常见问题-faq)
 
 ---
 
@@ -29,6 +30,89 @@
 - 重启自动 disarm，必须手动点「启动交易」才会接单
 - 飞书 + Telegram 双渠道告警
 - Web 后台改配置实时生效（部分需重启，UI 有标注）
+
+---
+
+## 需要先注册的账号
+
+在动手之前，先把这几个账号都准备好。**强烈建议从测试网开始**，等熟悉了再换实盘。
+
+### 1. 币安（Binance）—— 必须
+
+| 用途 | 网址 | 说明 |
+|------|------|------|
+| **测试网注册（强烈推荐先用这个）** | https://testnet.binancefuture.com/ | 用测试 USDT 玩，亏了不心疼，没有 KYC 麻烦 |
+| **测试网 API 申请** | https://testnet.binancefuture.com/en/futures/BTCUSDT （登录后右上角「API Key」） | 直接生成，无需邮箱验证 |
+| **实盘注册** | https://www.binance.com/zh-CN | 中国大陆访问需要科学上网 |
+| **实盘 API 管理** | https://www.binance.com/zh-CN/my/settings/api-management | 创建 API → **必须勾选「启用合约」**，**绝对不要勾「启用提现」** |
+| **永续合约开通** | 实盘需先在 https://www.binance.com/zh-CN/futures 「开通合约」 | 通过简单测试题，开通 USDT-M Futures |
+| **API 申请文档** | https://developers.binance.com/docs/zh-CN/derivatives/usds-margined-futures/general-info | 官方 API 文档（看不懂可忽略，bot 已封装） |
+
+**测试网拿测试币（faucet）**：登录 testnet.binancefuture.com 后，会自动赠送一些测试 USDT（约 100,000 USDT）。如果用完了，去 https://testnet.binancefuture.com/en/balance/funds 点「Free $1000」按钮领取。
+
+**API Key 安全设置（实盘强制要求）**：
+
+1. 创建 API 时勾选项：
+   - ✅ **Enable Reading**（读取，必须）
+   - ✅ **Enable Futures**（合约交易，必须）
+   - ❌ **Enable Spot & Margin Trading**（不用，不勾）
+   - ❌ **Enable Withdrawals**（提现，**绝对不勾**！防止 API 被盗后资金被卷走）
+2. **IP 白名单**：填写你部署 bot 的服务器公网 IP。本地测试可暂时勾「Unrestricted」，但生产环境**必须**绑定 IP。
+3. **Secret Key 只在创建时显示一次**，立刻复制保存到 bot 后台 /settings → 币安 API 区块。
+
+### 2. TradingView —— 必须
+
+| 用途 | 网址 | 说明 |
+|------|------|------|
+| **注册账号** | https://www.tradingview.com/signup/ | 免费 |
+| **套餐升级（webhook 必须）** | https://www.tradingview.com/pricing/ | **免费版不支持 webhook**，最低需要 Essential（约 $14.95/月）才能用 webhook 告警 |
+| **Pine Script 文档** | https://cn.tradingview.com/pine-script-docs/ | 写自定义策略时参考 |
+
+> 💡 **TradingView 免费版能玩 bot 吗**？可以，但只能用 curl 手动模拟 webhook 测试。要让策略自动触发必须 Essential 及以上套餐。
+
+### 3. Cloudflare —— 必须（用于把本地 bot 暴露到公网）
+
+| 用途 | 网址 | 说明 |
+|------|------|------|
+| **注册账号（绑域名时需要）** | https://dash.cloudflare.com/sign-up | 免费 |
+| **Cloudflare Tunnel 文档** | https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/ | 临时 tunnel 不需要账号；长期用建议绑域名 |
+| **cloudflared 下载** | https://github.com/cloudflare/cloudflared/releases | macOS 推荐用 `brew install cloudflared` |
+
+> 💡 **替代方案**：如果你不想用 Cloudflare，可以用 ngrok：
+> - 注册 https://dashboard.ngrok.com/signup
+> - 装 https://ngrok.com/download
+> - 个人免费版 1 个 tunnel 够用
+
+### 4. 飞书机器人 —— 可选（用于通知）
+
+| 用途 | 网址 | 说明 |
+|------|------|------|
+| **创建自定义机器人 webhook** | 飞书 App 内：群聊 → 设置 → 群机器人 → 添加机器人 → 自定义机器人 | [官方文档](https://www.feishu.cn/hc/zh-CN/articles/360024984973) |
+| **机器人配置文档** | https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot | 添加后会得到一个 webhook URL，填到 bot 后台 /settings |
+
+### 5. Telegram —— 可选（用于通知）
+
+| 用途 | 网址 | 说明 |
+|------|------|------|
+| **创建 Bot** | 在 Telegram 里联系 [@BotFather](https://t.me/BotFather) 发 `/newbot` | 跟着提示走，最后会得到一个 token |
+| **找你的 chat_id** | 在 Telegram 里联系 [@userinfobot](https://t.me/userinfobot) 发任意消息 | 它会回你 chat_id（或群组 ID） |
+| **Bot API 文档** | https://core.telegram.org/bots/api | 进阶参考 |
+
+> 💡 中国大陆访问 Telegram 需要科学上网。
+
+### 6. VPS / 云服务器 —— 上线生产时
+
+任选一家：
+
+| 厂商 | 网址 | 推荐场景 |
+|------|------|---------|
+| **DigitalOcean** | https://www.digitalocean.com/ | $4/月起，支持港日新加坡机房，币安延迟低 |
+| **Vultr** | https://www.vultr.com/ | $2.50/月起，机房更多 |
+| **AWS Lightsail** | https://aws.amazon.com/lightsail/ | $3.50/月起 |
+| **腾讯云轻量服** | https://cloud.tencent.com/product/lighthouse | 国内用户友好，但访问 Binance 需选海外节点 |
+| **阿里云 ECS** | https://www.aliyun.com/product/ecs | 同上 |
+
+**最低配置建议**：1 vCPU + 1GB RAM + 25GB 磁盘 = 够用。bot 进程极轻，瓶颈是 PostgreSQL。
 
 ---
 
@@ -306,20 +390,31 @@ https://random-words-xxxx-yyyy.trycloudflare.com/webhook/tv
 
 切换模式：改 `.env` 的 `BOT_MODE` → 重启 bot。
 
-**testnet 怎么玩**：
+**testnet 怎么玩**（强烈推荐先在这里跑一遍）：
 
-1. 注册 https://testnet.binancefuture.com 拿 API Key/Secret（注意是 *testnet* 的）
-2. bot 后台 http://localhost:8080/settings → **币安 API** 区块 → 填 testnet 的 key/secret → 保存
-3. `.env` 改 `BOT_MODE=testnet` → 重启 bot
+1. **注册测试网账号**：https://testnet.binancefuture.com/
+   - 第一次访问会自动赠送约 100,000 测试 USDT
+   - 没有 KYC、邮箱验证等麻烦
+2. **拿测试网 API Key**：
+   - 登录后右上角点 **「API Key」**
+   - 直接「Generate HMAC_SHA256 Key」即可
+   - 复制 API Key 和 Secret Key（**Secret 只显示一次**！）
+3. **填到 bot 后台**：http://localhost:8080/settings → **币安 API** 区块 → 填 testnet 的 key/secret → 保存
+4. **切换模式**：`.env` 改 `BOT_MODE=testnet` → 重启 bot
+5. **测试余额不够了**：去 https://testnet.binancefuture.com/en/balance/funds 点「Free $1000」按钮领取
 
 **live 上线 checklist**：
 
 - [ ] 已经在 testnet 跑通完整流程（开仓 + 止损触发 + 平仓）
-- [ ] 币安官网创建 API Key，**勾选「Enable Futures Trading」**，**不勾「Enable Withdrawals」**
-- [ ] API Key 设置 IP 白名单（你的服务器 IP）
-- [ ] bot 后台填入 live key/secret
-- [ ] 用最小 size_usdc（比如 10）跑一笔验证
-- [ ] 监控 telegram/飞书告警是否能收到
+- [ ] **币安实盘账号已开通合约**：https://www.binance.com/zh-CN/futures （第一次需通过简单测试题）
+- [ ] **创建 API Key**：https://www.binance.com/zh-CN/my/settings/api-management
+  - ✅ 勾「Enable Futures」（合约交易，必须）
+  - ❌ **不勾「Enable Withdrawals」**（防止资金被卷走）
+  - ❌ 不勾「Enable Spot & Margin Trading」（不用）
+- [ ] **API Key 绑定 IP 白名单**（页面上「Restrict access to trusted IPs only」），填你 VPS 公网 IP
+- [ ] bot 后台 /settings 填入 live key/secret，重启 bot
+- [ ] 用最小 size_usdc（比如 10 USDC）跑一笔实盘验证
+- [ ] **配好 Telegram/飞书告警**（/settings 里），确认能收到下单通知
 
 ---
 
