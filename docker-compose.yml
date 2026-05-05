@@ -13,3 +13,22 @@ services:
       interval: 2s
       timeout: 5s
       retries: 30
+
+  bot:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      BOT_MODE: ${BOT_MODE:-dry_run}
+      DATABASE_URL: postgres://tvbot:tvbot@postgres:5432/tvbot?sslmode=disable
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-please-change-me}
+      SESSION_SECRET: ${SESSION_SECRET:-please-change-me-please-change-me}
+      HTTP_LISTEN: 0.0.0.0:8080
+      LOG_LEVEL: info
+      BINANCE_API_KEY: ${BINANCE_API_KEY:-}
+      BINANCE_API_SECRET: ${BINANCE_API_SECRET:-}
+    ports: ["8080:8080"]
+    volumes:
+      - ./config:/app/config:ro
+    restart: unless-stopped
