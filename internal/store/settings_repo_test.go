@@ -11,6 +11,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestSettingsRepo_UpdateBinance(t *testing.T) {
+	pool := testPool(t)
+	repo := NewSettingsRepo(pool)
+	ctx := context.Background()
+
+	require.NoError(t, repo.UpdateBinance(ctx, pool, "KEY-123", "SECRET-456"))
+	s, err := repo.Get(ctx, pool)
+	require.NoError(t, err)
+	assert.Equal(t, "KEY-123", s.BinanceAPIKey)
+	assert.Equal(t, "SECRET-456", s.BinanceAPISecret)
+
+	// Empty string updates → NULL → empty string in struct
+	require.NoError(t, repo.UpdateBinance(ctx, pool, "", ""))
+	s2, err := repo.Get(ctx, pool)
+	require.NoError(t, err)
+	assert.Empty(t, s2.BinanceAPIKey)
+	assert.Empty(t, s2.BinanceAPISecret)
+}
+
 func TestSettingsRepo_BootstrapPopulatesNulls(t *testing.T) {
 	pool := testPool(t)
 	repo := NewSettingsRepo(pool)
@@ -19,7 +38,8 @@ func TestSettingsRepo_BootstrapPopulatesNulls(t *testing.T) {
 	require.NoError(t, repo.Bootstrap(ctx, pool,
 		decimal.NewFromFloat(3.0), decimal.NewFromFloat(500),
 		"https://feishu.example", true,
-		"tg-token", "12345", false))
+		"tg-token", "12345", false,
+		"", ""))
 
 	s, err := repo.Get(ctx, pool)
 	require.NoError(t, err)
@@ -37,7 +57,8 @@ func TestSettingsRepo_BootstrapRespectsExisting(t *testing.T) {
 	// Initial bootstrap
 	require.NoError(t, repo.Bootstrap(ctx, pool,
 		decimal.NewFromFloat(3.0), decimal.NewFromFloat(500),
-		"https://a", true, "t1", "c1", false))
+		"https://a", true, "t1", "c1", false,
+		"key1", "secret1"))
 
 	// User changed via UI:
 	require.NoError(t, repo.UpdateRisk(ctx, pool, decimal.NewFromFloat(5.0), decimal.NewFromFloat(1000)))
@@ -46,7 +67,8 @@ func TestSettingsRepo_BootstrapRespectsExisting(t *testing.T) {
 	// Restart calls Bootstrap again — must NOT overwrite user changes
 	require.NoError(t, repo.Bootstrap(ctx, pool,
 		decimal.NewFromFloat(99), decimal.NewFromFloat(99999),
-		"https://c", true, "t99", "c99", true))
+		"https://c", true, "t99", "c99", true,
+		"key99", "secret99"))
 
 	s, _ := repo.Get(ctx, pool)
 	assert.True(t, decimal.NewFromFloat(5.0).Equal(s.MaxTotalLeverage),

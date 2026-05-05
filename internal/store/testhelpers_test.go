@@ -71,6 +71,7 @@ func applyMigrations(t *testing.T, p *pgxpool.Pool) {
 	migrations := []string{
 		"../../migrations/0001_init.sql",
 		"../../migrations/0002_settings.sql",
+		"../../migrations/0003_binance_settings.sql",
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

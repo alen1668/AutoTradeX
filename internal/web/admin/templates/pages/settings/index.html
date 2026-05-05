@@ -64,4 +64,24 @@
     <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">保存通知配置</button>
   </form>
 </div>
+
+<div class="bg-white shadow rounded p-6 mb-6">
+  <h2 class="text-lg font-semibold mb-4">币安 API（修改后需重启）</h2>
+  <p class="text-xs text-gray-500 mb-4">
+    用于 testnet 和 live 模式调用 Binance USDT-M 永续合约 API。dry_run 模式不需要。
+    建议账号开启 IP 白名单 + 仅授交易权限不授提币权限。
+  </p>
+  <form method="POST" action="/settings/binance" class="space-y-4 max-w-xl">
+    <div>
+      <label class="block text-sm font-medium">API Key</label>
+      <input type="text" name="binance_api_key" value="{{ .Settings.BinanceAPIKey }}" placeholder="..." class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono text-sm">
+    </div>
+    <div>
+      <label class="block text-sm font-medium">API Secret</label>
+      <input type="password" name="binance_api_secret" value="{{ .Settings.BinanceAPISecret }}" placeholder="..." class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono text-sm">
+      <p class="text-xs text-gray-500 mt-1">已保存的 secret 不会回显在此处的明文中（出于安全考虑可选实现：留空表示不修改，保留原值）</p>
+    </div>
+    <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">保存币安配置</button>
+  </form>
+</div>
 {{ end }}

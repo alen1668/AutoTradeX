@@ -80,3 +80,18 @@ func (h *SettingsHandler) SaveNotifier(w http.ResponseWriter, r *http.Request) {
 	}
 	http.Redirect(w, r, "/settings?saved=1", http.StatusSeeOther)
 }
+
+// SaveBinance handles POST /settings/binance — updates Binance API credentials (requires restart).
+func (h *SettingsHandler) SaveBinance(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	apiKey := r.FormValue("binance_api_key")
+	apiSecret := r.FormValue("binance_api_secret")
+	if err := h.repo.UpdateBinance(r.Context(), h.pool, apiKey, apiSecret); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/settings?saved=1", http.StatusSeeOther)
+}

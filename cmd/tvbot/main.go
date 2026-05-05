@@ -83,38 +83,17 @@ func main() {
 	settingsRepo := store.NewSettingsRepo(pool)
 	_ = userRepo // used by AuthHandler; surfaced here for completeness
 
-	// ── trader factory (mode-based) ──────────────────────────────────────────
-	var trader tradepkg.Trader
-	switch cfg.BotMode {
-	case config.ModeTestnet, config.ModeLive:
-		bt := binanceinfra.New(cfg.Binance, cfg.BinanceKey, cfg.BinanceSecret, cfg.BotMode, logger)
-		trader = bt
-		// Application service will pick up bt as StepSizer automatically via
-		// the interface check in NewService; explicit set for clarity.
-		_ = bt // assigned below after tradeSvc is created
-	default: // dry_run
-		trader = tradepkg.NewDryRunTrader()
-	}
-
-	// ── application services ─────────────────────────────────────────────────
-	tradeSvc := trade.NewService(pool, orderRepo, posRepo, historyRepo, trader)
-
-	// For testnet/live: inject BinanceTrader as StepSizer (already done by
-	// NewService's interface check, but be explicit for clarity).
-	if bt, ok := trader.(*binanceinfra.Trader); ok {
-		tradeSvc.WithStepSizer(bt)
-	}
-
 	idem := idempotency.NewChecker(10000, signalRepo).WithPool(pool)
 
 	// ── settings bootstrap (yaml → DB on first run only) ─────────────────────
 	// On subsequent startups COALESCE ensures existing DB values are preserved,
-	// so changes made via the admin UI (P5.2) survive restarts.
+	// so changes made via the admin UI survive restarts.
 	if err := settingsRepo.Bootstrap(ctx, pool,
 		decimal.NewFromFloat(cfg.Risk.MaxTotalLeverage),
 		decimal.NewFromFloat(cfg.Risk.MaxDailyLossUSDC),
 		cfg.Notifier.Feishu.WebhookURL, cfg.Notifier.Feishu.Enabled,
 		cfg.Notifier.Telegram.BotToken, cfg.Notifier.Telegram.ChatID, cfg.Notifier.Telegram.Enabled,
+		cfg.BinanceKey, cfg.BinanceSecret,
 	); err != nil {
 		logger.Fatal().Err(err).Msg("settings bootstrap")
 	}
@@ -135,9 +114,9 @@ func main() {
 	}
 
 	// ── notifier ─────────────────────────────────────────────────────────────
-	// Read notifier config from DB (bootstrapped from yaml above on first run).
-	// NOTE: notifier endpoints are resolved at startup. To apply changes made
-	// via the admin UI (P5.2), restart the bot.
+	// Read settings from DB (bootstrapped from yaml above on first run).
+	// NOTE: notifier endpoints and Binance creds are resolved at startup.
+	// To apply changes made via the admin UI, restart the bot.
 	dbSettings, err := settingsRepo.Get(ctx, pool)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("settings get")
@@ -156,6 +135,30 @@ func main() {
 		notifier = notifiers[0]
 	} else {
 		notifier = notify.NewMulti(notifiers...)
+	}
+
+	// ── trader factory (mode-based, uses DB creds with env fallback) ─────────
+	var trader tradepkg.Trader
+	switch cfg.BotMode {
+	case config.ModeDryRun:
+		trader = tradepkg.NewDryRunTrader()
+	case config.ModeTestnet, config.ModeLive:
+		if dbSettings.BinanceAPIKey == "" || dbSettings.BinanceAPISecret == "" {
+			logger.Fatal().Msgf("BOT_MODE=%s but Binance API key/secret not set; configure via /settings or env", cfg.BotMode)
+		}
+		bt := binanceinfra.New(cfg.Binance, dbSettings.BinanceAPIKey, dbSettings.BinanceAPISecret, cfg.BotMode, logger)
+		trader = bt
+		_ = bt // assigned below after tradeSvc is created
+	default:
+		trader = tradepkg.NewDryRunTrader()
+	}
+
+	// ── application services ─────────────────────────────────────────────────
+	tradeSvc := trade.NewService(pool, orderRepo, posRepo, historyRepo, trader)
+
+	// For testnet/live: inject BinanceTrader as StepSizer.
+	if bt, ok := trader.(*binanceinfra.Trader); ok {
+		tradeSvc.WithStepSizer(bt)
 	}
 
 	// ── ingest service ───────────────────────────────────────────────────────
@@ -252,6 +255,7 @@ func main() {
 			r.Get("/settings", settingsHandler.Index)
 			r.Post("/settings/risk", settingsHandler.SaveRisk)
 			r.Post("/settings/notifier", settingsHandler.SaveNotifier)
+			r.Post("/settings/binance", settingsHandler.SaveBinance)
 
 			// Status partial (HTMX hx-get for status bar auto-refresh)
 			r.Get("/_partials/status", statusHandler.Partial)

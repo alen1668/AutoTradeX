@@ -15,6 +15,8 @@ type Settings struct {
 	TelegramBotToken string
 	TelegramChatID   string
 	TelegramEnabled  bool
+	BinanceAPIKey    string
+	BinanceAPISecret string
 }
 
 type SettingsRepo struct {
@@ -27,12 +29,15 @@ func (r *SettingsRepo) Get(ctx context.Context, q Querier) (*Settings, error) {
 	var s Settings
 	var maxLev, maxLoss *decimal.Decimal
 	var feishuURL, tgToken, tgChat *string
+	var bnKey, bnSecret *string
 	err := q.QueryRow(ctx, `
 SELECT max_total_leverage, max_daily_loss_usdc,
        feishu_webhook_url, feishu_enabled,
-       telegram_bot_token, telegram_chat_id, telegram_enabled
+       telegram_bot_token, telegram_chat_id, telegram_enabled,
+       binance_api_key, binance_api_secret
   FROM system_state WHERE id=1`,
-	).Scan(&maxLev, &maxLoss, &feishuURL, &s.FeishuEnabled, &tgToken, &tgChat, &s.TelegramEnabled)
+	).Scan(&maxLev, &maxLoss, &feishuURL, &s.FeishuEnabled, &tgToken, &tgChat, &s.TelegramEnabled,
+		&bnKey, &bnSecret)
 	if err != nil {
 		return nil, err
 	}
@@ -50,6 +55,12 @@ SELECT max_total_leverage, max_daily_loss_usdc,
 	}
 	if tgChat != nil {
 		s.TelegramChatID = *tgChat
+	}
+	if bnKey != nil {
+		s.BinanceAPIKey = *bnKey
+	}
+	if bnSecret != nil {
+		s.BinanceAPISecret = *bnSecret
 	}
 	return &s, nil
 }
@@ -84,7 +95,8 @@ UPDATE system_state
 func (r *SettingsRepo) Bootstrap(ctx context.Context, q Querier,
 	maxLeverage, maxDailyLoss decimal.Decimal,
 	feishuURL string, feishuEnabled bool,
-	tgToken, tgChatID string, tgEnabled bool) error {
+	tgToken, tgChatID string, tgEnabled bool,
+	bnKey, bnSecret string) error {
 	_, err := q.Exec(ctx, `
 UPDATE system_state SET
   max_total_leverage   = COALESCE(max_total_leverage,   $1),
@@ -93,8 +105,23 @@ UPDATE system_state SET
   feishu_enabled       = CASE WHEN max_total_leverage IS NULL THEN $4 ELSE feishu_enabled END,
   telegram_bot_token   = COALESCE(telegram_bot_token,   NULLIF($5,'')),
   telegram_chat_id     = COALESCE(telegram_chat_id,     NULLIF($6,'')),
-  telegram_enabled     = CASE WHEN max_total_leverage IS NULL THEN $7 ELSE telegram_enabled END
+  telegram_enabled     = CASE WHEN max_total_leverage IS NULL THEN $7 ELSE telegram_enabled END,
+  binance_api_key      = COALESCE(binance_api_key,      NULLIF($8,'')),
+  binance_api_secret   = COALESCE(binance_api_secret,   NULLIF($9,''))
 WHERE id=1`,
-		maxLeverage, maxDailyLoss, feishuURL, feishuEnabled, tgToken, tgChatID, tgEnabled)
+		maxLeverage, maxDailyLoss, feishuURL, feishuEnabled, tgToken, tgChatID, tgEnabled,
+		bnKey, bnSecret)
+	return err
+}
+
+// UpdateBinance updates the Binance API key and secret in the DB.
+// Empty strings are stored as NULL.
+func (r *SettingsRepo) UpdateBinance(ctx context.Context, q Querier, apiKey, apiSecret string) error {
+	_, err := q.Exec(ctx, `
+UPDATE system_state
+   SET binance_api_key=NULLIF($1,''),
+       binance_api_secret=NULLIF($2,''),
+       updated_at=now()
+ WHERE id=1`, apiKey, apiSecret)
 	return err
 }
