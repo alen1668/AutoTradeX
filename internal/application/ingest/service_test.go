@@ -117,8 +117,8 @@ func newService(t *testing.T, p *pgxpool.Pool) *Service {
 	idem := idempotency.NewChecker(1024, signalRepo).WithPool(p)
 	pipe := risk.NewPipeline(
 		risk.MaxPositionRule{},
-		risk.TotalLeverageRule{MaxLeverage: decimal.NewFromInt(10)},
-		risk.DailyLossBreakerRule{MaxDailyLossUSDC: decimal.NewFromInt(1000)},
+		risk.TotalLeverageRule{Settings: risk.NewStaticSettings(decimal.NewFromInt(10), decimal.Zero)},
+		risk.DailyLossBreakerRule{Settings: risk.NewStaticSettings(decimal.Zero, decimal.NewFromInt(1000))},
 	)
 	tradeSvc := apptrade.NewService(p, orderRepo, posRepo, historyRepo, tradepkg.NewDryRunTrader())
 	return NewService(Config{

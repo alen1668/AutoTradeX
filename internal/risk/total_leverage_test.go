@@ -12,7 +12,7 @@ import (
 )
 
 func TestTotalLeverageRule_AllowsBelowMax(t *testing.T) {
-	r := TotalLeverageRule{MaxLeverage: decimal.NewFromFloat(3.0)}
+	r := TotalLeverageRule{Settings: NewStaticSettings(decimal.NewFromFloat(3.0), decimal.Zero)}
 	s := mustStrategy(t, 100, 500) // notional = 500
 	d, err := r.Check(context.Background(), Input{
 		Signal:          &sigpkg.Signal{Kind: sigpkg.KindLong},
@@ -25,7 +25,7 @@ func TestTotalLeverageRule_AllowsBelowMax(t *testing.T) {
 }
 
 func TestTotalLeverageRule_DeniesAboveMax(t *testing.T) {
-	r := TotalLeverageRule{MaxLeverage: decimal.NewFromFloat(2.0)}
+	r := TotalLeverageRule{Settings: NewStaticSettings(decimal.NewFromFloat(2.0), decimal.Zero)}
 	s := mustStrategy(t, 100, 500) // notional = 500
 	d, err := r.Check(context.Background(), Input{
 		Signal:          &sigpkg.Signal{Kind: sigpkg.KindLong},
@@ -39,7 +39,7 @@ func TestTotalLeverageRule_DeniesAboveMax(t *testing.T) {
 }
 
 func TestTotalLeverageRule_AllowsExitSignal(t *testing.T) {
-	r := TotalLeverageRule{MaxLeverage: decimal.NewFromFloat(1.0)}
+	r := TotalLeverageRule{Settings: NewStaticSettings(decimal.NewFromFloat(1.0), decimal.Zero)}
 	s := mustStrategy(t, 100, 500)
 	d, err := r.Check(context.Background(), Input{
 		Signal:          &sigpkg.Signal{Kind: sigpkg.KindExitLong},
@@ -52,7 +52,7 @@ func TestTotalLeverageRule_AllowsExitSignal(t *testing.T) {
 }
 
 func TestTotalLeverageRule_RejectsZeroEquity(t *testing.T) {
-	r := TotalLeverageRule{MaxLeverage: decimal.NewFromFloat(3.0)}
+	r := TotalLeverageRule{Settings: NewStaticSettings(decimal.NewFromFloat(3.0), decimal.Zero)}
 	s := mustStrategy(t, 100, 500)
 	d, err := r.Check(context.Background(), Input{
 		Signal:        &sigpkg.Signal{Kind: sigpkg.KindLong},

@@ -80,6 +80,7 @@ func main() {
 	historyRepo := store.NewPositionHistoryRepo(pool)
 	orderRepo := store.NewOrderRepo(pool)
 	userRepo := store.NewUserRepo(pool)
+	settingsRepo := store.NewSettingsRepo(pool)
 	_ = userRepo // used by AuthHandler; surfaced here for completeness
 
 	// ── trader factory (mode-based) ──────────────────────────────────────────
@@ -106,11 +107,24 @@ func main() {
 
 	idem := idempotency.NewChecker(10000, signalRepo).WithPool(pool)
 
+	// ── settings bootstrap (yaml → DB on first run only) ─────────────────────
+	// On subsequent startups COALESCE ensures existing DB values are preserved,
+	// so changes made via the admin UI (P5.2) survive restarts.
+	if err := settingsRepo.Bootstrap(ctx, pool,
+		decimal.NewFromFloat(cfg.Risk.MaxTotalLeverage),
+		decimal.NewFromFloat(cfg.Risk.MaxDailyLossUSDC),
+		cfg.Notifier.Feishu.WebhookURL, cfg.Notifier.Feishu.Enabled,
+		cfg.Notifier.Telegram.BotToken, cfg.Notifier.Telegram.ChatID, cfg.Notifier.Telegram.Enabled,
+	); err != nil {
+		logger.Fatal().Err(err).Msg("settings bootstrap")
+	}
+
 	// ── risk pipeline ────────────────────────────────────────────────────────
+	settingsProvider := risk.NewDBSettingsProvider(pool, settingsRepo)
 	riskPipe := risk.NewPipeline(
 		risk.MaxPositionRule{},
-		risk.TotalLeverageRule{MaxLeverage: decimal.NewFromFloat(cfg.Risk.MaxTotalLeverage)},
-		risk.DailyLossBreakerRule{MaxDailyLossUSDC: decimal.NewFromFloat(cfg.Risk.MaxDailyLossUSDC)},
+		risk.TotalLeverageRule{Settings: settingsProvider},
+		risk.DailyLossBreakerRule{Settings: settingsProvider},
 	)
 
 	// IP whitelist rule — enforced as HTTP middleware on /webhook/tv.
@@ -121,16 +135,25 @@ func main() {
 	}
 
 	// ── notifier ─────────────────────────────────────────────────────────────
-	var notifiers []notify.Notifier
-	if cfg.Notifier.Feishu.Enabled && cfg.Notifier.Feishu.WebhookURL != "" {
-		notifiers = append(notifiers, notify.NewFeishu(cfg.Notifier.Feishu.WebhookURL))
+	// Read notifier config from DB (bootstrapped from yaml above on first run).
+	// NOTE: notifier endpoints are resolved at startup. To apply changes made
+	// via the admin UI (P5.2), restart the bot.
+	dbSettings, err := settingsRepo.Get(ctx, pool)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("settings get")
 	}
-	if cfg.Notifier.Telegram.Enabled && cfg.Notifier.Telegram.BotToken != "" {
-		notifiers = append(notifiers, notify.NewTelegram("", cfg.Notifier.Telegram.BotToken, cfg.Notifier.Telegram.ChatID))
+	var notifiers []notify.Notifier
+	if dbSettings.FeishuEnabled && dbSettings.FeishuURL != "" {
+		notifiers = append(notifiers, notify.NewFeishu(dbSettings.FeishuURL))
+	}
+	if dbSettings.TelegramEnabled && dbSettings.TelegramBotToken != "" && dbSettings.TelegramChatID != "" {
+		notifiers = append(notifiers, notify.NewTelegram("", dbSettings.TelegramBotToken, dbSettings.TelegramChatID))
 	}
 	var notifier notify.Notifier
 	if len(notifiers) == 0 {
 		notifier = notify.NoOp{}
+	} else if len(notifiers) == 1 {
+		notifier = notifiers[0]
 	} else {
 		notifier = notify.NewMulti(notifiers...)
 	}

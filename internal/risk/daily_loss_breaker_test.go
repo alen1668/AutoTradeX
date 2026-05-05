@@ -12,7 +12,7 @@ import (
 )
 
 func TestDailyLossBreaker_AllowsWhenBreakerNotTripped(t *testing.T) {
-	r := DailyLossBreakerRule{MaxDailyLossUSDC: decimal.NewFromFloat(500)}
+	r := DailyLossBreakerRule{Settings: NewStaticSettings(decimal.Zero, decimal.NewFromFloat(500))}
 	d, err := r.Check(context.Background(), Input{
 		Signal:         &sigpkg.Signal{Kind: sigpkg.KindLong},
 		Strategy:       mustStrategy(t, 100, 500),
@@ -24,7 +24,7 @@ func TestDailyLossBreaker_AllowsWhenBreakerNotTripped(t *testing.T) {
 }
 
 func TestDailyLossBreaker_DeniesWhenBreakerTripped(t *testing.T) {
-	r := DailyLossBreakerRule{MaxDailyLossUSDC: decimal.NewFromFloat(500)}
+	r := DailyLossBreakerRule{Settings: NewStaticSettings(decimal.Zero, decimal.NewFromFloat(500))}
 	d, err := r.Check(context.Background(), Input{
 		Signal:         &sigpkg.Signal{Kind: sigpkg.KindLong},
 		Strategy:       mustStrategy(t, 100, 500),
@@ -36,7 +36,7 @@ func TestDailyLossBreaker_DeniesWhenBreakerTripped(t *testing.T) {
 }
 
 func TestDailyLossBreaker_DeniesWhenLossExceedsThreshold(t *testing.T) {
-	r := DailyLossBreakerRule{MaxDailyLossUSDC: decimal.NewFromFloat(500)}
+	r := DailyLossBreakerRule{Settings: NewStaticSettings(decimal.Zero, decimal.NewFromFloat(500))}
 	d, err := r.Check(context.Background(), Input{
 		Signal:       &sigpkg.Signal{Kind: sigpkg.KindLong},
 		Strategy:     mustStrategy(t, 100, 500),
@@ -49,7 +49,7 @@ func TestDailyLossBreaker_DeniesWhenLossExceedsThreshold(t *testing.T) {
 
 func TestDailyLossBreaker_AllowsExitSignalEvenWhenTripped(t *testing.T) {
 	// 平仓信号必须能通过，否则永远卡住
-	r := DailyLossBreakerRule{MaxDailyLossUSDC: decimal.NewFromFloat(500)}
+	r := DailyLossBreakerRule{Settings: NewStaticSettings(decimal.Zero, decimal.NewFromFloat(500))}
 	d, err := r.Check(context.Background(), Input{
 		Signal:         &sigpkg.Signal{Kind: sigpkg.KindExitLong},
 		BreakerTripped: true,

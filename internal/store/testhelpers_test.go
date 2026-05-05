@@ -68,19 +68,25 @@ func testPool(t *testing.T) *pgxpool.Pool {
 
 func applyMigrations(t *testing.T, p *pgxpool.Pool) {
 	t.Helper()
-	migPath, err := filepath.Abs("../../migrations/0001_init.sql")
-	require.NoError(t, err)
-	data, err := os.ReadFile(migPath)
-	require.NoError(t, err)
-	// Crude split on -- +goose markers and execute the Up StatementBegin block.
-	sql := extractGooseUp(string(data))
+	migrations := []string{
+		"../../migrations/0001_init.sql",
+		"../../migrations/0002_settings.sql",
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	conn, err := p.Acquire(ctx)
 	require.NoError(t, err)
 	defer conn.Release()
-	_, err = conn.Exec(ctx, sql)
-	require.NoError(t, err, "apply migrations")
+	for _, rel := range migrations {
+		migPath, err := filepath.Abs(rel)
+		require.NoError(t, err)
+		data, err := os.ReadFile(migPath)
+		require.NoError(t, err)
+		// Crude split on -- +goose markers and execute the Up StatementBegin block.
+		sql := extractGooseUp(string(data))
+		_, err = conn.Exec(ctx, sql)
+		require.NoError(t, err, "apply migration %s", rel)
+	}
 }
 
 // extractGooseUp pulls the body between `-- +goose Up\n-- +goose StatementBegin`
