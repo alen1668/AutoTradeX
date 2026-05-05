@@ -1,0 +1,46 @@
+# Build artifacts
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+tvbot
+
+# Go
+vendor/
+go.work
+go.work.sum
+
+# Env / secrets
+.env
+.env.local
+*.local.yaml
+config/config.yaml
+!config/config.yaml.example
+
+# Local data
+.data/
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Tailwind / frontend build
+internal/web/admin/static/dist/
+node_modules/
+
+# Test
+coverage.out
+coverage.html
+
+# Local docker overrides
+docker-compose.override.yml
