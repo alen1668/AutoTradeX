@@ -1,0 +1,16 @@
+version: "3.9"
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tvbot
+      POSTGRES_PASSWORD: tvbot
+      POSTGRES_DB: tvbot
+    ports: ["5432:5432"]
+    volumes:
+      - ./.data/pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tvbot -d tvbot"]
+      interval: 2s
+      timeout: 5s
+      retries: 30

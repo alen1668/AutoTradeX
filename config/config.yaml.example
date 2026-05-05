@@ -1,0 +1,24 @@
+risk:
+  max_total_leverage: 3.0
+  max_daily_loss_usdc: 500
+ip_whitelist:
+  - 52.89.214.238
+  - 34.212.75.30
+  - 54.218.53.128
+  - 52.32.178.7
+  - 127.0.0.1
+notifier:
+  feishu:
+    webhook_url: ""
+    enabled: false
+  telegram:
+    bot_token: ""
+    chat_id: ""
+    enabled: false
+binance:
+  base_url_live:    "https://fapi.binance.com"
+  base_url_testnet: "https://testnet.binancefuture.com"
+  recv_window_ms:   5000
+  order_timeout_ms: 3000
+reconciler:
+  interval_seconds: 30
