@@ -87,7 +87,7 @@ func TestClientIP_HonorsXFFFromLoopback(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/webhook/tv", strings.NewReader(""))
 	req.RemoteAddr = "127.0.0.1:80"
 	req.Header.Set("X-Forwarded-For", "1.2.3.4, 10.0.0.1")
-	got := clientIP(req)
+	got := ClientIP(req)
 	assert.Equal(t, "10.0.0.1", got.String(),
 		"rightmost XFF entry is the immediate proxy's caller")
 }
@@ -96,7 +96,7 @@ func TestClientIP_IgnoresXFFFromExternal(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/webhook/tv", strings.NewReader(""))
 	req.RemoteAddr = "8.8.8.8:80"
 	req.Header.Set("X-Forwarded-For", "1.2.3.4")
-	got := clientIP(req)
+	got := ClientIP(req)
 	assert.Equal(t, "8.8.8.8", got.String(),
 		"don't trust XFF from external clients")
 }
