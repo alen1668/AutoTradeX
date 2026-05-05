@@ -1,0 +1,64 @@
+{{ define "content" }}
+<h1 class="text-2xl font-bold mb-4">持仓</h1>
+<h2 class="text-lg font-semibold mt-4 mb-2">活跃持仓</h2>
+<table class="w-full bg-white shadow rounded text-sm">
+  <thead class="bg-gray-100 text-left">
+    <tr>
+      <th class="px-3 py-2">策略</th>
+      <th class="px-3 py-2">币种</th>
+      <th class="px-3 py-2">方向</th>
+      <th class="px-3 py-2">数量</th>
+      <th class="px-3 py-2">入场价</th>
+      <th class="px-3 py-2">成交价</th>
+      <th class="px-3 py-2">状态</th>
+      <th class="px-3 py-2">开仓时间</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{ range .Active }}
+    <tr class="border-t">
+      <td class="px-3 py-2 font-mono">{{ .StrategyID }}</td>
+      <td class="px-3 py-2">{{ .Symbol }}</td>
+      <td class="px-3 py-2 {{ if eq .Side "long" }}text-green-700{{ else }}text-red-600{{ end }}">{{ .Side }}</td>
+      <td class="px-3 py-2">{{ .Qty }}</td>
+      <td class="px-3 py-2">{{ .EntrySignalPrice }}</td>
+      <td class="px-3 py-2">{{ .EntryFillPrice }}</td>
+      <td class="px-3 py-2">{{ .Status }}</td>
+      <td class="px-3 py-2 text-xs text-gray-500">{{ .OpenedAt.Format "01-02 15:04:05" }}</td>
+    </tr>
+    {{ else }}
+    <tr><td colspan="8" class="px-3 py-4 text-center text-gray-500">无活跃持仓</td></tr>
+    {{ end }}
+  </tbody>
+</table>
+
+<h2 class="text-lg font-semibold mt-6 mb-2">最近平仓</h2>
+<table class="w-full bg-white shadow rounded text-sm">
+  <thead class="bg-gray-100 text-left">
+    <tr>
+      <th class="px-3 py-2">平仓时间</th>
+      <th class="px-3 py-2">策略</th>
+      <th class="px-3 py-2">方向</th>
+      <th class="px-3 py-2">数量</th>
+      <th class="px-3 py-2">开/平价</th>
+      <th class="px-3 py-2">PnL</th>
+      <th class="px-3 py-2">原因</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{ range .History }}
+    <tr class="border-t">
+      <td class="px-3 py-2 text-xs">{{ .ClosedAt.Format "01-02 15:04:05" }}</td>
+      <td class="px-3 py-2 font-mono">{{ .StrategyID }}</td>
+      <td class="px-3 py-2 {{ if eq .Side "long" }}text-green-700{{ else }}text-red-600{{ end }}">{{ .Side }}</td>
+      <td class="px-3 py-2">{{ .Qty }}</td>
+      <td class="px-3 py-2 text-xs">{{ .EntryFillPrice }} &rarr; {{ .ExitFillPrice }}</td>
+      <td class="px-3 py-2 {{ if .PnLUSDC.IsNegative }}text-red-600{{ else }}text-green-700{{ end }}">{{ .PnLUSDC }}</td>
+      <td class="px-3 py-2 text-xs">{{ .CloseReason }}</td>
+    </tr>
+    {{ else }}
+    <tr><td colspan="7" class="px-3 py-4 text-center text-gray-500">暂无历史</td></tr>
+    {{ end }}
+  </tbody>
+</table>
+{{ end }}

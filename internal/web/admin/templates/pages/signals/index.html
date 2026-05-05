@@ -1,0 +1,47 @@
+{{ define "content" }}
+<h1 class="text-2xl font-bold mb-4">信号日志</h1>
+<table class="w-full bg-white shadow rounded text-sm">
+  <thead class="bg-gray-100 text-left">
+    <tr>
+      <th class="px-3 py-2">接收时间</th>
+      <th class="px-3 py-2">策略</th>
+      <th class="px-3 py-2">币种</th>
+      <th class="px-3 py-2">方向</th>
+      <th class="px-3 py-2">价格</th>
+      <th class="px-3 py-2">decision</th>
+      <th class="px-3 py-2">原因</th>
+      <th class="px-3 py-2">trace_id</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{ range .Signals }}
+    <tr class="border-t">
+      <td class="px-3 py-2 text-xs">{{ .ReceivedAt.Format "01-02 15:04:05" }}</td>
+      <td class="px-3 py-2 font-mono">{{ .StrategyID }}</td>
+      <td class="px-3 py-2">{{ .Symbol }}</td>
+      <td class="px-3 py-2">{{ .Kind }}</td>
+      <td class="px-3 py-2">{{ .SignalPrice }}</td>
+      <td class="px-3 py-2">
+        {{ if eq .Decision "accepted" }}
+          <span class="text-green-700 font-medium">accepted</span>
+        {{ else if eq .Decision "duplicate" }}
+          <span class="text-gray-500">duplicate</span>
+        {{ else if eq .Decision "risk_denied" }}
+          <span class="text-orange-600 font-medium">risk_denied</span>
+        {{ else if eq .Decision "disarmed" }}
+          <span class="text-yellow-700 font-medium">disarmed</span>
+        {{ else if eq .Decision "invalid" }}
+          <span class="text-red-600 font-medium">invalid</span>
+        {{ else }}
+          {{ .Decision }}
+        {{ end }}
+      </td>
+      <td class="px-3 py-2 text-xs">{{ .DecisionReason }}</td>
+      <td class="px-3 py-2 text-xs font-mono text-gray-500">{{ .TraceID }}</td>
+    </tr>
+    {{ else }}
+    <tr><td colspan="8" class="px-3 py-4 text-center text-gray-500">暂无信号</td></tr>
+    {{ end }}
+  </tbody>
+</table>
+{{ end }}
