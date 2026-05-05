@@ -38,6 +38,12 @@ func NewIPWhitelistRule(entries []string) (*IPWhitelistRule, error) {
 
 func (r *IPWhitelistRule) Name() string { return "ip_whitelist" }
 
+// Empty reports whether no IPs or CIDRs have been configured.
+// When empty, callers may choose to allow all traffic (dev/no-whitelist mode).
+func (r *IPWhitelistRule) Empty() bool {
+	return len(r.exactIPs) == 0 && len(r.cidrs) == 0
+}
+
 func (r *IPWhitelistRule) Check(_ context.Context, in Input) (Decision, error) {
 	if in.ClientIP == nil {
 		return Deny("client ip missing"), nil

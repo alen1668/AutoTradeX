@@ -113,9 +113,9 @@ func main() {
 		risk.DailyLossBreakerRule{MaxDailyLossUSDC: decimal.NewFromFloat(cfg.Risk.MaxDailyLossUSDC)},
 	)
 
-	// IP whitelist rule (used as standalone middleware check inside ingest;
-	// empty list means all IPs allowed in dev).
-	_, err = risk.NewIPWhitelistRule(cfg.IPWhitelist)
+	// IP whitelist rule — enforced as HTTP middleware on /webhook/tv.
+	// Empty list means all IPs allowed (dev/no-whitelist mode).
+	ipRule, err := risk.NewIPWhitelistRule(cfg.IPWhitelist)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("ip_whitelist config")
 	}
@@ -171,8 +171,11 @@ func main() {
 	srv := web.New(cfg.HTTPListen, logger)
 	r := srv.Router()
 
-	// /webhook/tv — public (HMAC checked inside ingest service)
-	r.Post("/webhook/tv", webhookHandler.Post)
+	// /webhook/tv — IP-whitelisted; HMAC checked inside ingest service
+	r.Route("/webhook", func(r chi.Router) {
+		r.Use(webmw.IPWhitelist(ipRule))
+		r.Post("/tv", webhookHandler.Post)
+	})
 
 	// /static/* — vendored HTMX and other static assets
 	r.Handle("/static/*", http.StripPrefix("/static/",

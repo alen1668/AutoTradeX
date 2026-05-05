@@ -49,7 +49,7 @@ func (h *Handler) Post(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, response{Decision: "invalid", Reason: "read body: " + err.Error()})
 		return
 	}
-	ip := clientIP(r)
+	ip := ClientIP(r)
 
 	res, err := h.svc.Ingest(r.Context(), body, ip)
 	if err != nil {
@@ -68,12 +68,12 @@ func (h *Handler) Post(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// clientIP extracts the client IP. If behind a trusted reverse proxy that
+// ClientIP extracts the client IP. If behind a trusted reverse proxy that
 // sets X-Forwarded-For, you'd configure that elsewhere. For now: prefer
 // the rightmost X-Forwarded-For entry (the proxy's caller) only when the
 // remote addr is loopback (i.e., we're behind a tunnel like cloudflared);
 // otherwise trust RemoteAddr.
-func clientIP(r *http.Request) net.IP {
+func ClientIP(r *http.Request) net.IP {
 	host, _, _ := net.SplitHostPort(r.RemoteAddr)
 	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
