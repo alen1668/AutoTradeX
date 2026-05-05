@@ -10,18 +10,19 @@ import (
 )
 
 type PositionsHandler struct {
-	render       *Renderer
-	pool         *pgxpool.Pool
-	posRepo      *store.VirtualPositionRepo
-	strategyRepo *store.StrategyRepo
-	historyRepo  *store.PositionHistoryRepo
+	render        *Renderer
+	pool          *pgxpool.Pool
+	posRepo       *store.VirtualPositionRepo
+	strategyRepo  *store.StrategyRepo
+	historyRepo   *store.PositionHistoryRepo
+	statusHandler *StatusHandler
 }
 
 func NewPositionsHandler(r *Renderer, pool *pgxpool.Pool,
 	posRepo *store.VirtualPositionRepo, strategyRepo *store.StrategyRepo,
-	historyRepo *store.PositionHistoryRepo) *PositionsHandler {
+	historyRepo *store.PositionHistoryRepo, sh *StatusHandler) *PositionsHandler {
 	return &PositionsHandler{render: r, pool: pool, posRepo: posRepo,
-		strategyRepo: strategyRepo, historyRepo: historyRepo}
+		strategyRepo: strategyRepo, historyRepo: historyRepo, statusHandler: sh}
 }
 
 func (h *PositionsHandler) Index(w http.ResponseWriter, r *http.Request) {
@@ -48,8 +49,9 @@ func (h *PositionsHandler) Index(w http.ResponseWriter, r *http.Request) {
 			allHistory = append(allHistory, hist...)
 		}
 	}
-	h.render.Render(w, http.StatusOK, "positions/index", map[string]any{
+	data := h.statusHandler.WithStatus(r, map[string]any{
 		"Active":  active,
 		"History": allHistory,
 	})
+	h.render.Render(w, http.StatusOK, "positions/index", data)
 }

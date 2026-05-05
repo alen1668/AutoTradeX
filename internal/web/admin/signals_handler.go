@@ -10,13 +10,14 @@ import (
 )
 
 type SignalsHandler struct {
-	render *Renderer
-	pool   *pgxpool.Pool
-	repo   *store.SignalRepo
+	render        *Renderer
+	pool          *pgxpool.Pool
+	repo          *store.SignalRepo
+	statusHandler *StatusHandler
 }
 
-func NewSignalsHandler(r *Renderer, pool *pgxpool.Pool, repo *store.SignalRepo) *SignalsHandler {
-	return &SignalsHandler{render: r, pool: pool, repo: repo}
+func NewSignalsHandler(r *Renderer, pool *pgxpool.Pool, repo *store.SignalRepo, sh *StatusHandler) *SignalsHandler {
+	return &SignalsHandler{render: r, pool: pool, repo: repo, statusHandler: sh}
 }
 
 func (h *SignalsHandler) Index(w http.ResponseWriter, r *http.Request) {
@@ -31,7 +32,8 @@ func (h *SignalsHandler) Index(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	h.render.Render(w, http.StatusOK, "signals/index", map[string]any{
+	data := h.statusHandler.WithStatus(r, map[string]any{
 		"Signals": rows,
 	})
+	h.render.Render(w, http.StatusOK, "signals/index", data)
 }

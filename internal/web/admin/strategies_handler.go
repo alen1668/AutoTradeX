@@ -12,13 +12,14 @@ import (
 )
 
 type StrategiesHandler struct {
-	render *Renderer
-	repo   *store.StrategyRepo
-	pool   *pgxpool.Pool
+	render        *Renderer
+	repo          *store.StrategyRepo
+	pool          *pgxpool.Pool
+	statusHandler *StatusHandler
 }
 
-func NewStrategiesHandler(r *Renderer, repo *store.StrategyRepo, pool *pgxpool.Pool) *StrategiesHandler {
-	return &StrategiesHandler{render: r, repo: repo, pool: pool}
+func NewStrategiesHandler(r *Renderer, repo *store.StrategyRepo, pool *pgxpool.Pool, sh *StatusHandler) *StrategiesHandler {
+	return &StrategiesHandler{render: r, repo: repo, pool: pool, statusHandler: sh}
 }
 
 func (h *StrategiesHandler) Index(w http.ResponseWriter, r *http.Request) {
@@ -27,16 +28,18 @@ func (h *StrategiesHandler) Index(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	h.render.Render(w, http.StatusOK, "strategies/index", map[string]any{
+	data := h.statusHandler.WithStatus(r, map[string]any{
 		"Strategies": rows,
 	})
+	h.render.Render(w, http.StatusOK, "strategies/index", data)
 }
 
 func (h *StrategiesHandler) New(w http.ResponseWriter, r *http.Request) {
-	h.render.Render(w, http.StatusOK, "strategies/edit", map[string]any{
+	data := h.statusHandler.WithStatus(r, map[string]any{
 		"Strategy": &store.StrategyRow{Enabled: true, Leverage: 5},
 		"IsNew":    true,
 	})
+	h.render.Render(w, http.StatusOK, "strategies/edit", data)
 }
 
 func (h *StrategiesHandler) Edit(w http.ResponseWriter, r *http.Request) {
@@ -46,10 +49,11 @@ func (h *StrategiesHandler) Edit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	h.render.Render(w, http.StatusOK, "strategies/edit", map[string]any{
+	data := h.statusHandler.WithStatus(r, map[string]any{
 		"Strategy": row,
 		"IsNew":    false,
 	})
+	h.render.Render(w, http.StatusOK, "strategies/edit", data)
 }
 
 func (h *StrategiesHandler) Save(w http.ResponseWriter, r *http.Request) {
@@ -59,9 +63,10 @@ func (h *StrategiesHandler) Save(w http.ResponseWriter, r *http.Request) {
 	}
 	row, err := parseStrategyForm(r)
 	if err != nil {
-		h.render.Render(w, http.StatusBadRequest, "strategies/edit", map[string]any{
+		data := h.statusHandler.WithStatus(r, map[string]any{
 			"Strategy": row, "IsNew": chi.URLParam(r, "id") == "", "Error": err.Error(),
 		})
+		h.render.Render(w, http.StatusBadRequest, "strategies/edit", data)
 		return
 	}
 	if chi.URLParam(r, "id") == "" {
