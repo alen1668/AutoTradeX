@@ -2,10 +2,13 @@ package admin
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
 
+	"github.com/lizhaojie/tvbot/internal/risk"
 	"github.com/lizhaojie/tvbot/internal/store"
 )
 
@@ -93,5 +96,89 @@ func (h *SettingsHandler) SaveBinance(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	http.Redirect(w, r, "/settings?saved=1", http.StatusSeeOther)
+}
+
+// SaveIPWhitelist handles POST /settings/ip-whitelist — updates the IP whitelist (live effect).
+func (h *SettingsHandler) SaveIPWhitelist(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	text := r.FormValue("entries")
+	var entries []string
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			entries = append(entries, line)
+		}
+	}
+	// Validate entries before storing
+	if len(entries) > 0 {
+		if _, err := risk.NewIPWhitelistRule(entries); err != nil {
+			http.Error(w, "invalid whitelist entry: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+	if err := h.repo.UpdateIPWhitelist(r.Context(), h.pool, entries); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/settings?saved=1", http.StatusSeeOther)
+}
+
+// SaveAdvanced handles POST /settings/advanced — updates webhook secret, reconciler interval,
+// and Binance tuning parameters.
+// Webhook secret takes live effect; reconciler interval and binance tuning require restart.
+func (h *SettingsHandler) SaveAdvanced(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	ctx := r.Context()
+
+	// Webhook secret — only update if non-empty (empty means "keep existing")
+	secret := r.FormValue("webhook_secret")
+	if secret != "" {
+		if err := h.repo.UpdateWebhookSecret(ctx, h.pool, secret); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Reconciler interval
+	reconcilerStr := r.FormValue("reconciler_interval_seconds")
+	if reconcilerStr != "" {
+		reconcilerSecs, err := strconv.Atoi(reconcilerStr)
+		if err != nil || reconcilerSecs < 5 || reconcilerSecs > 3600 {
+			http.Error(w, "reconciler_interval_seconds must be between 5 and 3600", http.StatusBadRequest)
+			return
+		}
+		if err := h.repo.UpdateReconciler(ctx, h.pool, reconcilerSecs); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Binance recv_window
+	recvWindowStr := r.FormValue("binance_recv_window_ms")
+	orderTimeoutStr := r.FormValue("binance_order_timeout_ms")
+	if recvWindowStr != "" || orderTimeoutStr != "" {
+		recvWindow, err := strconv.Atoi(recvWindowStr)
+		if err != nil || recvWindow < 1000 || recvWindow > 60000 {
+			http.Error(w, "binance_recv_window_ms must be between 1000 and 60000", http.StatusBadRequest)
+			return
+		}
+		orderTimeout, err := strconv.Atoi(orderTimeoutStr)
+		if err != nil || orderTimeout < 500 || orderTimeout > 30000 {
+			http.Error(w, "binance_order_timeout_ms must be between 500 and 30000", http.StatusBadRequest)
+			return
+		}
+		if err := h.repo.UpdateBinanceTuning(ctx, h.pool, recvWindow, orderTimeout); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
 	http.Redirect(w, r, "/settings?saved=1", http.StatusSeeOther)
 }

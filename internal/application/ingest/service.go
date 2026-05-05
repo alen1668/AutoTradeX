@@ -21,8 +21,8 @@ import (
 )
 
 type Config struct {
-	AccountEquityFallback decimal.Decimal // used in dry_run/testnet when no real equity reader
-	WebhookSecret         string          // compared against Signal.Secret
+	AccountEquityFallback decimal.Decimal                              // used in dry_run/testnet when no real equity reader
+	SecretLoader          func(ctx context.Context) (string, error)   // loads webhook secret from DB on each call
 }
 
 type Service struct {
@@ -72,7 +72,11 @@ func (s *Service) Ingest(ctx context.Context, body []byte, clientIP net.IP) (*In
 		_ = s.recordInvalid(ctx, body, clientIP, err.Error())
 		return &IngestResult{Decision: "invalid", Reason: err.Error()}, nil
 	}
-	if sig.Secret != s.cfg.WebhookSecret {
+	secret, err := s.cfg.SecretLoader(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("secret loader: %w", err)
+	}
+	if sig.Secret != secret {
 		_ = s.recordInvalid(ctx, body, clientIP, "secret mismatch")
 		return &IngestResult{Decision: "invalid", Reason: "secret mismatch"}, nil
 	}

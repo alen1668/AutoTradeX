@@ -8,7 +8,8 @@
 {{ end }}
 
 <div class="bg-yellow-50 border-l-4 border-yellow-500 p-3 text-sm mb-6">
-  风控阈值修改即时生效。通知配置（飞书/Telegram）修改后需要<strong>重启 bot</strong> 才会启用新的渠道。
+  风控阈值、IP 白名单、Webhook Secret 修改即时生效。<br>
+  通知配置（飞书/Telegram）、币安 API Key、Reconciler 周期、Binance 超时参数修改后需要<strong>重启 bot</strong> 才会启用。
 </div>
 
 <div class="bg-white shadow rounded p-6 mb-6">
@@ -82,6 +83,43 @@
       <p class="text-xs text-gray-500 mt-1">已保存的 secret 不会回显在此处的明文中（出于安全考虑可选实现：留空表示不修改，保留原值）</p>
     </div>
     <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">保存币安配置</button>
+  </form>
+</div>
+
+<div class="bg-white shadow rounded p-6 mb-6">
+  <h2 class="text-lg font-semibold mb-4">IP 白名单（实时生效）</h2>
+  <p class="text-xs text-gray-500 mb-4">
+    限制 /webhook/tv 来源 IP。每行一个 IP 或 CIDR。留空则不做限制（开发模式）。<br>
+    TradingView 官方 IP 段：52.89.214.238、34.212.75.30、54.218.53.128、52.32.178.7
+  </p>
+  <form method="POST" action="/settings/ip-whitelist" class="space-y-4 max-w-xl">
+    <textarea name="entries" rows="8" class="w-full rounded border border-gray-300 px-3 py-2 font-mono text-sm" placeholder="52.89.214.238&#10;10.0.0.0/8&#10;127.0.0.1">{{ range .Settings.IPWhitelist }}{{ . }}&#10;{{ end }}</textarea>
+    <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">保存白名单</button>
+  </form>
+</div>
+
+<div class="bg-white shadow rounded p-6 mb-6">
+  <h2 class="text-lg font-semibold mb-4">高级配置（修改后需重启，Webhook Secret 实时生效）</h2>
+  <form method="POST" action="/settings/advanced" class="space-y-4 max-w-xl">
+    <div>
+      <label class="block text-sm font-medium">Webhook Secret（实时生效；留空保留原值）</label>
+      <input type="password" name="webhook_secret" value="" placeholder="••••••••" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono text-sm">
+      <p class="text-xs text-gray-500 mt-1">TradingView Alert payload 中 secret 字段必须匹配此值。当前已设置：{{ if .Settings.WebhookSecret }}是{{ else }}否{{ end }}</p>
+    </div>
+    <div>
+      <label class="block text-sm font-medium">Reconciler 周期（秒，需重启）</label>
+      <input type="number" name="reconciler_interval_seconds" value="{{ .Settings.ReconcilerIntervalSeconds }}" min="5" max="3600" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+      <p class="text-xs text-gray-500 mt-1">订单状态对账后台周期。建议 30 秒。</p>
+    </div>
+    <div>
+      <label class="block text-sm font-medium">Binance recv_window (ms，需重启）</label>
+      <input type="number" name="binance_recv_window_ms" value="{{ .Settings.BinanceRecvWindowMs }}" min="1000" max="60000" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+    </div>
+    <div>
+      <label class="block text-sm font-medium">Binance 下单超时 (ms，需重启）</label>
+      <input type="number" name="binance_order_timeout_ms" value="{{ .Settings.BinanceOrderTimeoutMs }}" min="500" max="30000" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+    </div>
+    <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">保存高级配置</button>
   </form>
 </div>
 {{ end }}

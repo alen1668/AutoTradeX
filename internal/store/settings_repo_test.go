@@ -39,7 +39,10 @@ func TestSettingsRepo_BootstrapPopulatesNulls(t *testing.T) {
 		decimal.NewFromFloat(3.0), decimal.NewFromFloat(500),
 		"https://feishu.example", true,
 		"tg-token", "12345", false,
-		"", ""))
+		"", "",
+		"mysecret", []string{"127.0.0.1", "10.0.0.0/8"},
+		30, 5000, 3000,
+	))
 
 	s, err := repo.Get(ctx, pool)
 	require.NoError(t, err)
@@ -47,6 +50,11 @@ func TestSettingsRepo_BootstrapPopulatesNulls(t *testing.T) {
 	assert.True(t, decimal.NewFromFloat(500).Equal(s.MaxDailyLossUSDC))
 	assert.Equal(t, "https://feishu.example", s.FeishuURL)
 	assert.True(t, s.FeishuEnabled)
+	assert.Equal(t, "mysecret", s.WebhookSecret)
+	assert.Equal(t, []string{"127.0.0.1", "10.0.0.0/8"}, s.IPWhitelist)
+	assert.Equal(t, 30, s.ReconcilerIntervalSeconds)
+	assert.Equal(t, 5000, s.BinanceRecvWindowMs)
+	assert.Equal(t, 3000, s.BinanceOrderTimeoutMs)
 }
 
 func TestSettingsRepo_BootstrapRespectsExisting(t *testing.T) {
@@ -58,21 +66,75 @@ func TestSettingsRepo_BootstrapRespectsExisting(t *testing.T) {
 	require.NoError(t, repo.Bootstrap(ctx, pool,
 		decimal.NewFromFloat(3.0), decimal.NewFromFloat(500),
 		"https://a", true, "t1", "c1", false,
-		"key1", "secret1"))
+		"key1", "secret1",
+		"sec1", []string{"127.0.0.1"}, 30, 5000, 3000,
+	))
 
 	// User changed via UI:
 	require.NoError(t, repo.UpdateRisk(ctx, pool, decimal.NewFromFloat(5.0), decimal.NewFromFloat(1000)))
 	require.NoError(t, repo.UpdateNotifier(ctx, pool, "https://b", false, "", "", false))
+	require.NoError(t, repo.UpdateIPWhitelist(ctx, pool, []string{"192.168.1.0/24"}))
+	require.NoError(t, repo.UpdateWebhookSecret(ctx, pool, "newsecret"))
+	require.NoError(t, repo.UpdateReconciler(ctx, pool, 60))
+	require.NoError(t, repo.UpdateBinanceTuning(ctx, pool, 8000, 5000))
 
 	// Restart calls Bootstrap again — must NOT overwrite user changes
 	require.NoError(t, repo.Bootstrap(ctx, pool,
 		decimal.NewFromFloat(99), decimal.NewFromFloat(99999),
 		"https://c", true, "t99", "c99", true,
-		"key99", "secret99"))
+		"key99", "secret99",
+		"oldsecret", []string{"10.0.0.0/8"}, 10, 1000, 1000,
+	))
 
 	s, _ := repo.Get(ctx, pool)
 	assert.True(t, decimal.NewFromFloat(5.0).Equal(s.MaxTotalLeverage),
 		"bootstrap should NOT overwrite already-set value")
 	assert.True(t, decimal.NewFromFloat(1000).Equal(s.MaxDailyLossUSDC))
 	assert.Equal(t, "https://b", s.FeishuURL)
+	assert.Equal(t, "newsecret", s.WebhookSecret, "bootstrap must not overwrite UI-set webhook secret")
+	assert.Equal(t, []string{"192.168.1.0/24"}, s.IPWhitelist, "bootstrap must not overwrite UI-set IP whitelist")
+	assert.Equal(t, 60, s.ReconcilerIntervalSeconds, "bootstrap must not overwrite UI-set reconciler interval")
+	assert.Equal(t, 8000, s.BinanceRecvWindowMs)
+	assert.Equal(t, 5000, s.BinanceOrderTimeoutMs)
+}
+
+func TestSettingsRepo_IPWhitelistRoundTrip(t *testing.T) {
+	pool := testPool(t)
+	repo := NewSettingsRepo(pool)
+	ctx := context.Background()
+
+	// Initially nil → returns empty slice via COALESCE
+	s, err := repo.Get(ctx, pool)
+	require.NoError(t, err)
+	assert.Empty(t, s.IPWhitelist)
+
+	// Set whitelist
+	entries := []string{"52.89.214.238", "10.0.0.0/8", "127.0.0.1"}
+	require.NoError(t, repo.UpdateIPWhitelist(ctx, pool, entries))
+	s2, err := repo.Get(ctx, pool)
+	require.NoError(t, err)
+	assert.Equal(t, entries, s2.IPWhitelist)
+
+	// Clear whitelist
+	require.NoError(t, repo.UpdateIPWhitelist(ctx, pool, []string{}))
+	s3, err := repo.Get(ctx, pool)
+	require.NoError(t, err)
+	assert.Empty(t, s3.IPWhitelist)
+}
+
+func TestSettingsRepo_WebhookSecretRoundTrip(t *testing.T) {
+	pool := testPool(t)
+	repo := NewSettingsRepo(pool)
+	ctx := context.Background()
+
+	require.NoError(t, repo.UpdateWebhookSecret(ctx, pool, "abc123"))
+	s, err := repo.Get(ctx, pool)
+	require.NoError(t, err)
+	assert.Equal(t, "abc123", s.WebhookSecret)
+
+	// Empty → NULL → empty string
+	require.NoError(t, repo.UpdateWebhookSecret(ctx, pool, ""))
+	s2, err := repo.Get(ctx, pool)
+	require.NoError(t, err)
+	assert.Empty(t, s2.WebhookSecret)
 }

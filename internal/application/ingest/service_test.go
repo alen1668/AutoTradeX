@@ -123,7 +123,9 @@ func newService(t *testing.T, p *pgxpool.Pool) *Service {
 	tradeSvc := apptrade.NewService(p, orderRepo, posRepo, historyRepo, tradepkg.NewDryRunTrader())
 	return NewService(Config{
 		AccountEquityFallback: decimal.NewFromInt(10000),
-		WebhookSecret:         "secret",
+		SecretLoader: func(_ context.Context) (string, error) {
+			return "secret", nil
+		},
 	}, p, signalRepo, strategyRepo, posRepo, systemRepo, idem, pipe, tradeSvc,
 		notify.NoOp{}, zerolog.Nop())
 }

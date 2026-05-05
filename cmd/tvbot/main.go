@@ -94,6 +94,8 @@ func main() {
 		cfg.Notifier.Feishu.WebhookURL, cfg.Notifier.Feishu.Enabled,
 		cfg.Notifier.Telegram.BotToken, cfg.Notifier.Telegram.ChatID, cfg.Notifier.Telegram.Enabled,
 		cfg.BinanceKey, cfg.BinanceSecret,
+		cfg.WebhookSecret, cfg.IPWhitelist,
+		cfg.Reconciler.IntervalSeconds, cfg.Binance.RecvWindowMs, cfg.Binance.OrderTimeoutMs,
 	); err != nil {
 		logger.Fatal().Err(err).Msg("settings bootstrap")
 	}
@@ -106,17 +108,11 @@ func main() {
 		risk.DailyLossBreakerRule{Settings: settingsProvider},
 	)
 
-	// IP whitelist rule — enforced as HTTP middleware on /webhook/tv.
-	// Empty list means all IPs allowed (dev/no-whitelist mode).
-	ipRule, err := risk.NewIPWhitelistRule(cfg.IPWhitelist)
-	if err != nil {
-		logger.Fatal().Err(err).Msg("ip_whitelist config")
-	}
-
 	// ── notifier ─────────────────────────────────────────────────────────────
 	// Read settings from DB (bootstrapped from yaml above on first run).
 	// NOTE: notifier endpoints and Binance creds are resolved at startup.
 	// To apply changes made via the admin UI, restart the bot.
+	// Reconciler interval and Binance tuning are also read here (restart-required).
 	dbSettings, err := settingsRepo.Get(ctx, pool)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("settings get")
@@ -146,7 +142,15 @@ func main() {
 		if dbSettings.BinanceAPIKey == "" || dbSettings.BinanceAPISecret == "" {
 			logger.Fatal().Msgf("BOT_MODE=%s but Binance API key/secret not set; configure via /settings or env", cfg.BotMode)
 		}
-		bt := binanceinfra.New(cfg.Binance, dbSettings.BinanceAPIKey, dbSettings.BinanceAPISecret, cfg.BotMode, logger)
+		// Override yaml tuning with DB values when set (DB takes precedence after first bootstrap)
+		binCfg := cfg.Binance
+		if dbSettings.BinanceRecvWindowMs > 0 {
+			binCfg.RecvWindowMs = dbSettings.BinanceRecvWindowMs
+		}
+		if dbSettings.BinanceOrderTimeoutMs > 0 {
+			binCfg.OrderTimeoutMs = dbSettings.BinanceOrderTimeoutMs
+		}
+		bt := binanceinfra.New(binCfg, dbSettings.BinanceAPIKey, dbSettings.BinanceAPISecret, cfg.BotMode, logger)
 		trader = bt
 		_ = bt // assigned below after tradeSvc is created
 	default:
@@ -163,8 +167,14 @@ func main() {
 
 	// ── ingest service ───────────────────────────────────────────────────────
 	ingestCfg := ingest.Config{
-		WebhookSecret:         cfg.WebhookSecret,
 		AccountEquityFallback: decimal.NewFromFloat(10000), // dry-run fallback
+		SecretLoader: func(ctx context.Context) (string, error) {
+			s, err := settingsRepo.Get(ctx, pool)
+			if err != nil {
+				return "", err
+			}
+			return s.WebhookSecret, nil
+		},
 	}
 	ingestSvc := ingest.NewService(ingestCfg, pool,
 		signalRepo, strategyRepo, posRepo, systemRepo,
@@ -199,9 +209,15 @@ func main() {
 	srv := web.New(cfg.HTTPListen, logger)
 	r := srv.Router()
 
-	// /webhook/tv — IP-whitelisted; HMAC checked inside ingest service
+	// /webhook/tv — IP-whitelisted (DB-backed, live-effect); secret checked inside ingest service
 	r.Route("/webhook", func(r chi.Router) {
-		r.Use(webmw.IPWhitelist(ipRule))
+		r.Use(webmw.IPWhitelist(func(ctx context.Context) ([]string, error) {
+			s, err := settingsRepo.Get(ctx, pool)
+			if err != nil {
+				return nil, err
+			}
+			return s.IPWhitelist, nil
+		}))
 		r.Post("/tv", webhookHandler.Post)
 	})
 
@@ -256,6 +272,8 @@ func main() {
 			r.Post("/settings/risk", settingsHandler.SaveRisk)
 			r.Post("/settings/notifier", settingsHandler.SaveNotifier)
 			r.Post("/settings/binance", settingsHandler.SaveBinance)
+			r.Post("/settings/ip-whitelist", settingsHandler.SaveIPWhitelist)
+			r.Post("/settings/advanced", settingsHandler.SaveAdvanced)
 
 			// Status partial (HTMX hx-get for status bar auto-refresh)
 			r.Get("/_partials/status", statusHandler.Partial)
@@ -274,8 +292,13 @@ func main() {
 	}
 
 	// ── order reconciler (background goroutine) ──────────────────────────────
+	// Use DB value if set; fall back to yaml value.
+	reconcilerInterval := cfg.Reconciler.IntervalSeconds
+	if dbSettings.ReconcilerIntervalSeconds > 0 {
+		reconcilerInterval = dbSettings.ReconcilerIntervalSeconds
+	}
 	reconciler := reconcile.New(pool, orderRepo, posRepo, trader, notifier, logger,
-		time.Duration(cfg.Reconciler.IntervalSeconds)*time.Second)
+		time.Duration(reconcilerInterval)*time.Second)
 	go func() {
 		if err := reconciler.Run(shutCtx); err != nil && !errors.Is(err, context.Canceled) {
 			logger.Error().Err(err).Msg("reconciler exited")
