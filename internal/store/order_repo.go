@@ -51,6 +51,12 @@ RETURNING id`,
 	return id, err
 }
 
+func (r *OrderRepo) GetClientOrderIDByID(ctx context.Context, q Querier, id int64) (string, error) {
+	var cid string
+	err := q.QueryRow(ctx, `SELECT client_order_id FROM orders WHERE id=$1`, id).Scan(&cid)
+	return cid, err
+}
+
 func (r *OrderRepo) GetByClientID(ctx context.Context, q Querier, clientID string) (*OrderRow, error) {
 	return r.scanOne(ctx, q,
 		`SELECT id, COALESCE(virtual_position_id,0), strategy_id, symbol, side, type, purpose,
