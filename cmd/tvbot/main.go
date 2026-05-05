@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/lizhaojie/tvbot/internal/application/ingest"
+	"github.com/lizhaojie/tvbot/internal/application/reconcile"
 	"github.com/lizhaojie/tvbot/internal/application/trade"
 	"github.com/lizhaojie/tvbot/internal/config"
 	"github.com/lizhaojie/tvbot/internal/idempotency"
@@ -222,6 +224,22 @@ func main() {
 	// ── graceful shutdown ────────────────────────────────────────────────────
 	shutCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	// ── startup recovery (BEFORE HTTP server) ────────────────────────────────
+	recovery := reconcile.NewRecovery(pool, posRepo, systemRepo, trader, notifier, logger)
+	if err := recovery.Run(context.Background()); err != nil {
+		logger.Error().Err(err).Msg("startup recovery failed")
+		os.Exit(1)
+	}
+
+	// ── order reconciler (background goroutine) ──────────────────────────────
+	reconciler := reconcile.New(pool, orderRepo, posRepo, trader, notifier, logger,
+		time.Duration(cfg.Reconciler.IntervalSeconds)*time.Second)
+	go func() {
+		if err := reconciler.Run(shutCtx); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error().Err(err).Msg("reconciler exited")
+		}
+	}()
 
 	if err := srv.Start(shutCtx); err != nil {
 		logger.Error().Err(err).Msg("server error")
