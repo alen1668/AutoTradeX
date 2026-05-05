@@ -61,6 +61,13 @@ type payload struct {
 	Secret     *string      `json:"secret"`
 }
 
+// TraceID is a deterministic id useful for correlating logs/DB rows for a
+// single TV alert. Suitable for use as the trace id when none was provided
+// by an HTTP middleware. Format: tv-<strategy_id>-<tv_timestamp_ms>.
+func (s *Signal) TraceID() string {
+	return fmt.Sprintf("tv-%s-%d", s.StrategyID, s.TVTimestampMs)
+}
+
 func Parse(body []byte) (*Signal, error) {
 	dec := json.NewDecoder(strings.NewReader(string(body)))
 	dec.UseNumber()

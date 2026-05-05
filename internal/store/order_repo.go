@@ -43,7 +43,7 @@ func (r *OrderRepo) Insert(ctx context.Context, q Querier, in OrderRow) (int64, 
 INSERT INTO orders
   (virtual_position_id, strategy_id, symbol, side, type, purpose, qty, price,
    stop_price, client_order_id, status)
-VALUES (NULLIF($1,0)::bigint, $2,$3,$4,$5,$6,$7, NULLIF($8,0)::numeric, NULLIF($9,0)::numeric, $10, $11::order_status)
+VALUES (NULLIF($1,0)::bigint, $2,$3,$4,$5,$6,$7, NULLIF($8::numeric,0::numeric), NULLIF($9::numeric,0::numeric), $10, $11::order_status)
 RETURNING id`,
 		in.VirtualPositionID, in.StrategyID, in.Symbol, in.Side, in.Type, in.Purpose,
 		in.Qty, in.Price, in.StopPrice, in.ClientOrderID, in.Status,
