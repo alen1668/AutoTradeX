@@ -1,21 +1,21 @@
-# tvbot — TradingView Webhook Auto-Trader
+# tvbot — TradingView Webhook 自动交易机器人
 
-A single Go binary that receives TradingView strategy alerts over HTTPS, passes them through a risk pipeline, and executes USDT/USDC-M perpetual futures orders on Binance. State is persisted in PostgreSQL. An HTMX admin UI provides live visibility and system controls.
-
----
-
-## Overview
-
-- **Webhook ingestion**: TradingView POSTs a JSON payload to `/webhook/tv`. The ingest pipeline validates the HMAC secret, checks idempotency, runs risk rules, and dispatches a trade.
-- **Risk pipeline**: IP whitelist, max-position-per-strategy, total-leverage cap, daily-loss circuit-breaker.
-- **Traders**: DryRun (simulated fills at reference price), Testnet (Binance Futures sandbox), Live (real execution).
-- **Virtual position accounting**: multi-strategy PnL tracked independently; FIFO reconciliation on partial fills.
-- **Notifications**: Feishu and/or Telegram on fill/reject events.
-- **Admin UI**: HTMX-powered, session-authenticated. Arm/Disarm the system, manage strategies, inspect positions and signals.
+一个单 Go 二进制程序，接收 TradingView 策略告警（通过 HTTPS webhook），经过风控流水线处理后，在币安 USDT/USDC-M 永续合约上执行交易订单。状态持久化存储于 PostgreSQL。内置 HTMX 管理后台，提供实时可视化和系统控制功能。
 
 ---
 
-## Architecture
+## 概览 (Overview)
+
+- **Webhook 接收**：TradingView 向 `/webhook/tv` 发送 JSON 载荷。接收流水线验证 HMAC 签名、检查幂等性、执行风控规则，并下发交易指令。
+- **风控流水线**：IP 白名单、单策略最大仓位限制、总杠杆上限、日亏熔断。
+- **交易模式**：DryRun（以信号价格模拟成交）、Testnet（币安合约测试网）、Live（真实执行）。
+- **虚拟持仓核算**：多策略盈亏独立追踪，部分成交时按 FIFO 逻辑对账。
+- **通知**：在成交/拒绝事件时推送飞书和/或 Telegram 消息。
+- **管理后台**：基于 HTMX，需登录鉴权。支持启动/停止系统、管理策略、查看持仓和信号。
+
+---
+
+## 系统架构 (Architecture)
 
 ```
 TradingView ──webhook──► /webhook/tv ──► [parse → idempotency → risk → decide → trade → notify]
@@ -27,75 +27,75 @@ PostgreSQL ◄──── repos ◄──── application/{ingest,trade,recon
                                                     Notifier (Feishu / Telegram) ◄──┘
 ```
 
-Key packages:
+核心包说明：
 
-| Package | Responsibility |
+| 包路径 | 职责 |
 |---|---|
-| `internal/application/ingest` | Webhook parse, idempotency, risk pipeline orchestration |
-| `internal/application/trade` | Order placement, virtual position tracking |
-| `internal/application/reconcile` | Background fill reconciliation, startup recovery |
-| `internal/risk` | IP whitelist, max-position, leverage cap, daily-loss breaker |
-| `internal/store` | PostgreSQL repos (signals, orders, positions, strategies, system state) |
-| `internal/web/admin` | HTMX admin UI handlers |
-| `internal/web/middleware` | Auth session gate, IP whitelist HTTP middleware |
-| `internal/infrastructure/binance` | Binance Futures REST client (live + testnet) |
+| `internal/application/ingest` | Webhook 解析、幂等检查、风控流水线编排 |
+| `internal/application/trade` | 下单、虚拟持仓追踪 |
+| `internal/application/reconcile` | 后台成交对账、启动时恢复 |
+| `internal/risk` | IP 白名单、最大仓位、杠杆上限、日亏熔断 |
+| `internal/store` | PostgreSQL 数据访问层（信号、订单、持仓、策略、系统状态） |
+| `internal/web/admin` | HTMX 管理后台处理器 |
+| `internal/web/middleware` | 会话鉴权中间件、IP 白名单 HTTP 中间件 |
+| `internal/infrastructure/binance` | 币安合约 REST 客户端（live + testnet） |
 
 ---
 
-## Quick Start (5 min)
+## 快速开始 (Quick Start, 5 分钟)
 
-**Prerequisites**: Go 1.23+ and Docker (or a local Postgres 16+ instance).
+**前置条件**：Go 1.23+ 和 Docker（或本地 Postgres 16+ 实例）。
 
 ```bash
-# Clone
+# 克隆仓库
 git clone <repo-url> && cd crypto
 
-# Start Postgres
+# 启动 Postgres
 make pg-up
 make migrate-up
 
-# Build the binary
+# 编译二进制
 make build
 
-# Configure
+# 配置
 cp config/config.yaml.example config/config.yaml
 cp .env.example .env
 $EDITOR .env   # set BOT_MODE, WEBHOOK_SECRET, SESSION_SECRET at minimum
 
-# Create the first admin user (interactive prompt)
+# 创建第一个管理员账号（交互式提示）
 ./bin/tvbot seed-user
 
-# Run
+# 运行
 ./bin/tvbot
 ```
 
-Then open http://localhost:8080/login in your browser.
+然后在浏览器中打开 http://localhost:8080/login。
 
-### Docker Compose (alternative)
+### Docker Compose（另一种方式）
 
 ```bash
 cp .env.example .env
 $EDITOR .env   # configure secrets
 
-# Start only postgres (run migrations manually first)
+# 仅启动 postgres（先手动执行迁移）
 docker compose up -d postgres
 make migrate-up
 
-# Then bring up the bot
+# 再启动 bot
 docker compose up -d bot
 ```
 
 ---
 
-## TradingView Alert Setup
+## TradingView 告警配置 (TradingView Alert Setup)
 
-In your TradingView strategy, create a webhook alert pointing to:
+在您的 TradingView 策略中，创建一个指向以下地址的 webhook 告警：
 
 ```
 https://<your-domain>/webhook/tv
 ```
 
-Use this JSON message template:
+使用如下 JSON 消息模板：
 
 ```json
 {
@@ -108,11 +108,11 @@ Use this JSON message template:
 }
 ```
 
-- `strategy_id` must match a row in the `strategies` table (create via admin UI).
-- `signal` values: `buy`, `sell`, `close_long`, `close_short`.
-- `secret` must match `WEBHOOK_SECRET` in your `.env`.
+- `strategy_id` 必须与 `strategies` 表中的某一行匹配（通过管理后台创建）。
+- `signal` 取值：`buy`、`sell`、`close_long`、`close_short`。
+- `secret` 必须与 `.env` 中的 `WEBHOOK_SECRET` 一致。
 
-The IP whitelist in `config/config.yaml` is pre-seeded with TradingView's published egress IPs:
+`config/config.yaml` 中的 IP 白名单已预置 TradingView 官方出口 IP：
 
 ```yaml
 ip_whitelist:
@@ -125,85 +125,85 @@ ip_whitelist:
 
 ---
 
-## Modes
+## 运行模式 (Modes)
 
-| Mode | Description |
+| 模式 | 说明 |
 |---|---|
-| `dry_run` | No exchange calls; fills simulated at the signal price |
-| `testnet` | Executes on Binance Futures testnet (https://testnet.binancefuture.com) |
-| `live` | Real money. Requires `BINANCE_API_KEY` + `BINANCE_API_SECRET` |
+| `dry_run` | 不调用交易所接口，按信号价格模拟成交 |
+| `testnet` | 在币安合约测试网执行（https://testnet.binancefuture.com） |
+| `live` | 真实资金交易，需要配置 `BINANCE_API_KEY` + `BINANCE_API_SECRET` |
 
-Set via `BOT_MODE` env var. The binary prints the active mode at startup.
-
----
-
-## Operations
-
-### Arming and Disarming
-
-The system starts **disarmed**. Entry signals are rejected until you click **启动交易** in the admin UI (or POST `/system/arm`). This is a defense-in-depth measure — every restart requires a deliberate re-arm.
-
-To disarm without restart: click **停止交易** or POST `/system/disarm`.
-
-### Daily PnL Circuit Breaker
-
-When `system_state.daily_pnl_usdc` drops below `-max_daily_loss_usdc` (configured in `config/config.yaml` under `risk.max_daily_loss_usdc`), all entry signals are automatically rejected. Exit signals (close) are still processed.
-
-To reset the breaker manually: POST `/system/breaker/reset` or use the admin UI button.
-
-The breaker resets automatically at UTC midnight.
-
-### Background Reconciler
-
-A goroutine polls open orders every `reconciler.interval_seconds` (default 30s) and syncs fill status from the exchange. On startup, a recovery pass closes any orphaned open orders.
+通过 `BOT_MODE` 环境变量设置，程序启动时会打印当前模式。
 
 ---
 
-## Tests
+## 运维操作 (Operations)
+
+### 启动与停止 (Arming and Disarming)
+
+系统启动后默认处于**停止状态**。在管理后台点击**启动交易**（或 POST `/system/arm`）之前，所有入场信号均被拒绝。这是一项纵深防御机制——每次重启后都需要主动重新启动。
+
+停止交易无需重启：点击**停止交易**或 POST `/system/disarm`。
+
+### 日亏熔断 (Daily PnL Circuit Breaker)
+
+当 `system_state.daily_pnl_usdc` 跌破 `-max_daily_loss_usdc`（在 `config/config.yaml` 的 `risk.max_daily_loss_usdc` 中配置）时，所有入场信号自动被拒绝，平仓信号（close）仍正常处理。
+
+手动重置熔断：POST `/system/breaker/reset` 或使用管理后台按钮。
+
+熔断在 UTC 午夜自动重置。
+
+### 后台对账 (Background Reconciler)
+
+一个 goroutine 每隔 `reconciler.interval_seconds`（默认 30 秒）轮询未结订单，从交易所同步成交状态。启动时会执行一次恢复扫描，关闭所有孤立的未结订单。
+
+---
+
+## 测试 (Tests)
 
 ```bash
-# Unit tests (no external deps)
+# 单元测试（无外部依赖）
 go test -race ./...
 
-# Integration tests (requires Postgres — uses dockertest, spins up its own container)
+# 集成测试（需要 Postgres —— 使用 dockertest 自动拉起容器）
 go test -tags=integration -race ./...
 
-# Live testnet smoke test (requires Binance testnet keys)
+# 实盘测试网冒烟测试（需要币安测试网密钥）
 BINANCE_API_KEY=... BINANCE_API_SECRET=... \
   go test -tags=integration_binance ./internal/infrastructure/binance/...
 ```
 
-CI runs unit + integration tests on every push via GitHub Actions (`.github/workflows/ci.yml`).
+CI 在每次推送时通过 GitHub Actions（`.github/workflows/ci.yml`）运行单元测试和集成测试。
 
 ---
 
-## Configuration Reference
+## 配置参考 (Configuration Reference)
 
-### Environment variables (`.env`)
+### 环境变量（`.env`）
 
-| Variable | Required | Default | Description |
+| 变量名 | 是否必须 | 默认值 | 说明 |
 |---|---|---|---|
-| `BOT_MODE` | yes | — | `dry_run`, `testnet`, or `live` |
-| `DATABASE_URL` | yes | — | PostgreSQL connection string |
-| `WEBHOOK_SECRET` | yes | — | HMAC secret shared with TradingView |
-| `SESSION_SECRET` | yes | — | 32+ char secret for admin session cookies |
-| `HTTP_LISTEN` | no | `0.0.0.0:8080` | TCP listen address |
-| `LOG_LEVEL` | no | `info` | `debug`, `info`, `warn`, `error` |
-| `BINANCE_API_KEY` | live/testnet | — | Binance API key |
-| `BINANCE_API_SECRET` | live/testnet | — | Binance API secret |
+| `BOT_MODE` | 是 | — | `dry_run`、`testnet` 或 `live` |
+| `DATABASE_URL` | 是 | — | PostgreSQL 连接字符串 |
+| `WEBHOOK_SECRET` | 是 | — | 与 TradingView 共享的 HMAC 密钥 |
+| `SESSION_SECRET` | 是 | — | 管理后台会话 Cookie 的密钥，须 32 字符以上 |
+| `HTTP_LISTEN` | 否 | `0.0.0.0:8080` | TCP 监听地址 |
+| `LOG_LEVEL` | 否 | `info` | `debug`、`info`、`warn`、`error` |
+| `BINANCE_API_KEY` | live/testnet | — | 币安 API Key（首次启动时写入 DB；后续可在 /settings 页面修改） |
+| `BINANCE_API_SECRET` | live/testnet | — | 币安 API Secret（同上） |
 
-### YAML (`config/config.yaml`)
+### YAML 配置（`config/config.yaml`）
 
-| Key | Default | Description |
+| 配置项 | 默认值 | 说明 |
 |---|---|---|
-| `risk.max_total_leverage` | `3.0` | Rejects signals that would push aggregate leverage above this multiple |
-| `risk.max_daily_loss_usdc` | `500` | Daily-loss breaker threshold (USDC) |
-| `ip_whitelist` | TradingView IPs + 127.0.0.1 | CIDR/IP list for `/webhook/tv`; empty = allow all |
-| `reconciler.interval_seconds` | `30` | Fill-reconciliation polling interval |
+| `risk.max_total_leverage` | `3.0` | 所有活跃仓位名义价值之和 ÷ 账户权益不得超过此倍数 |
+| `risk.max_daily_loss_usdc` | `500` | 日亏熔断阈值（USDC） |
+| `ip_whitelist` | TradingView 官方 IP + 127.0.0.1 | `/webhook/tv` 的 CIDR/IP 白名单；为空则允许所有来源 |
+| `reconciler.interval_seconds` | `30` | 成交对账轮询间隔（秒） |
 
 ---
 
-## Deployment
+## 部署 (Deployment)
 
 ### Docker Compose
 
@@ -216,7 +216,7 @@ make migrate-up         # apply DB schema
 docker compose up -d bot
 ```
 
-### Bare metal (systemd)
+### 裸机部署（systemd）
 
 ```bash
 make build
@@ -225,25 +225,25 @@ sudo cp bin/tvbot /usr/local/bin/tvbot
 sudo systemctl enable --now tvbot
 ```
 
-### HTTPS (required by TradingView)
+### HTTPS（TradingView 要求）
 
-TradingView will only POST to HTTPS endpoints. Options:
+TradingView 仅向 HTTPS 地址推送告警。推荐方案：
 
-- **Cloudflare Tunnel** (`cloudflared`) — zero-cost, no public IP required. The bot listens on `localhost:8080`; cloudflared exposes it via your domain.
-- **Caddy** — add `reverse_proxy localhost:8080` in your Caddyfile; Caddy handles Let's Encrypt automatically.
-- **Cloud load balancer** — terminate TLS at the LB, forward HTTP to the bot.
+- **Cloudflare Tunnel**（`cloudflared`）——零成本，无需公网 IP。Bot 监听 `localhost:8080`，cloudflared 通过您的域名对外暴露。
+- **Caddy**——在 Caddyfile 中添加 `reverse_proxy localhost:8080`，Caddy 自动申请 Let's Encrypt 证书。
+- **云负载均衡器**——在负载均衡器处终止 TLS，将 HTTP 请求转发给 Bot。
 
-When running behind a loopback tunnel (cloudflared), `X-Forwarded-For` is trusted for IP extraction because `RemoteAddr` will be `127.0.0.1`.
+在 cloudflared 等回环隧道后运行时，IP 提取依赖 `X-Forwarded-For` 头（因为此时 `RemoteAddr` 为 `127.0.0.1`）。
 
 ---
 
-## Architecture (Deep Dive)
+## 架构深度解析 (Architecture Deep Dive)
 
-See the full design document:
+完整设计文档请参阅：
 [`docs/superpowers/specs/2026-05-05-tradingview-webhook-bot-design.md`](docs/superpowers/specs/2026-05-05-tradingview-webhook-bot-design.md)
 
 ---
 
-## License
+## 许可证 (License)
 
-MIT — see [LICENSE](LICENSE).
+MIT — 详见 [LICENSE](LICENSE)。
