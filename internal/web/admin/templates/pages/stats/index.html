@@ -1,0 +1,105 @@
+{{ define "content" }}
+<h1 class="text-2xl font-bold mb-6">收益统计</h1>
+
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white shadow rounded p-4">
+    <div class="text-xs text-gray-500">总交易数</div>
+    <div class="text-2xl font-bold">{{ .Totals.TotalTrades }}</div>
+  </div>
+  <div class="bg-white shadow rounded p-4">
+    <div class="text-xs text-gray-500">总胜率</div>
+    <div class="text-2xl font-bold">{{ printf "%s%%" (.Totals.TotalWinRate.StringFixed 1) }}</div>
+  </div>
+  <div class="bg-white shadow rounded p-4">
+    <div class="text-xs text-gray-500">总盈亏</div>
+    <div class="text-2xl font-bold {{ if .Totals.TotalPnLUSDC.IsNegative }}text-red-600{{ else }}text-green-700{{ end }}">
+      {{ .Totals.TotalPnLUSDC.StringFixed 2 }}
+    </div>
+  </div>
+  <div class="bg-white shadow rounded p-4">
+    <div class="text-xs text-gray-500">最佳/最差日</div>
+    <div class="text-sm font-bold">
+      <span class="text-green-700">+{{ .Totals.BestDay.StringFixed 2 }}</span> /
+      <span class="text-red-600">{{ .Totals.WorstDay.StringFixed 2 }}</span>
+    </div>
+  </div>
+</div>
+
+<div class="bg-white shadow rounded p-4 mb-6">
+  <canvas id="pnlChart" height="80"></canvas>
+</div>
+
+<table class="w-full bg-white shadow rounded text-sm">
+  <thead class="bg-gray-100 text-left">
+    <tr>
+      <th class="px-3 py-2">日期</th>
+      <th class="px-3 py-2">交易数</th>
+      <th class="px-3 py-2">胜率</th>
+      <th class="px-3 py-2">日 PnL</th>
+      <th class="px-3 py-2">累计 PnL</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{ range .Stats }}
+    <tr class="border-t">
+      <td class="px-3 py-2">{{ .Date.Format "2006-01-02" }}</td>
+      <td class="px-3 py-2">{{ .Trades }}</td>
+      <td class="px-3 py-2">{{ printf "%s%%" (.WinRate.StringFixed 1) }} ({{ .WinTrades }}/{{ .Trades }})</td>
+      <td class="px-3 py-2 {{ if .PnLUSDC.IsNegative }}text-red-600{{ else }}text-green-700{{ end }}">
+        {{ .PnLUSDC.StringFixed 2 }}
+      </td>
+      <td class="px-3 py-2 {{ if .IsCumNeg }}text-red-600{{ else }}text-green-700{{ end }}">
+        {{ .CumPnL.StringFixed 2 }}
+      </td>
+    </tr>
+    {{ else }}
+    <tr><td colspan="5" class="px-3 py-4 text-center text-gray-500">暂无平仓记录</td></tr>
+    {{ end }}
+  </tbody>
+</table>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+const stats = [
+  {{ range .Stats }}
+  { date: {{ printf "%q" (.Date.Format "01-02") }}, pnl: {{ .PnLUSDC.String }}, cum: {{ .CumPnL.String }} },
+  {{ end }}
+].reverse();
+if (stats.length > 0) {
+  new Chart(document.getElementById('pnlChart'), {
+    type: 'bar',
+    data: {
+      labels: stats.map(s => s.date),
+      datasets: [
+        {
+          type: 'bar',
+          label: '日 PnL',
+          data: stats.map(s => parseFloat(s.pnl)),
+          backgroundColor: stats.map(s => parseFloat(s.pnl) >= 0 ? '#22c55e' : '#dc2626'),
+          yAxisID: 'y',
+        },
+        {
+          type: 'line',
+          label: '累计 PnL',
+          data: stats.map(s => parseFloat(s.cum)),
+          borderColor: '#3b82f6',
+          backgroundColor: 'transparent',
+          yAxisID: 'y1',
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        y:  { type: 'linear', position: 'left',  title: { display: true, text: '日 PnL' } },
+        y1: { type: 'linear', position: 'right', title: { display: true, text: '累计' }, grid: { drawOnChartArea: false } },
+      },
+    },
+  });
+} else {
+  document.getElementById('pnlChart').parentElement.innerHTML =
+    '<p class="text-center text-gray-400 py-6">暂无数据</p>';
+}
+</script>
+{{ end }}

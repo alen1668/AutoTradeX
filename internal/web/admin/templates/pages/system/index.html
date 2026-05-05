@@ -1,0 +1,70 @@
+{{ define "content" }}
+<h1 class="text-2xl font-bold mb-6">系统控制</h1>
+
+<div class="bg-white shadow rounded p-6 mb-6">
+  <h2 class="text-lg font-semibold mb-4">当前状态</h2>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+    <div>
+      <div class="text-gray-500">运行模式</div>
+      <div class="font-bold text-lg {{ if eq .Mode "live" }}text-red-600{{ else if eq .Mode "testnet" }}text-yellow-600{{ else }}text-green-600{{ end }}">
+        {{ .Mode }}
+      </div>
+    </div>
+    <div>
+      <div class="text-gray-500">交易状态</div>
+      <div class="font-bold text-lg {{ if .State.Armed }}text-green-700{{ else }}text-red-600{{ end }}">
+        {{ if .State.Armed }}已启动{{ else }}已停止{{ end }}
+      </div>
+    </div>
+    <div>
+      <div class="text-gray-500">熔断器</div>
+      <div class="font-bold text-lg {{ if .State.BreakerTripped }}text-red-600{{ else }}text-green-700{{ end }}">
+        {{ if .State.BreakerTripped }}已触发{{ else }}正常{{ end }}
+      </div>
+    </div>
+    <div>
+      <div class="text-gray-500">当日 PnL</div>
+      <div class="font-bold text-lg {{ if .State.DailyPnLUSDC.IsNegative }}text-red-600{{ else }}text-green-700{{ end }}">
+        {{ .State.DailyPnLUSDC }} USDC
+      </div>
+    </div>
+  </div>
+  {{ if .State.BreakerTripped }}
+  <div class="mt-4 bg-orange-50 border-l-4 border-orange-500 p-3 text-sm">
+    熔断原因: {{ .State.BreakerReason }}
+  </div>
+  {{ end }}
+  {{ if .State.Armed }}
+  <div class="mt-4 text-xs text-gray-500">
+    上次启动: {{ .State.ArmedBy }} @ {{ .State.ArmedAt.Format "2006-01-02 15:04:05" }}
+  </div>
+  {{ end }}
+</div>
+
+<div class="bg-white shadow rounded p-6">
+  <h2 class="text-lg font-semibold mb-4">控制操作</h2>
+  <div class="space-y-3">
+    {{ if .State.Armed }}
+      <form method="POST" action="/system/disarm" onsubmit="return confirm('确认停止交易？')">
+        <button class="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-3 rounded">
+          停止交易（disarm）
+        </button>
+      </form>
+    {{ else }}
+      <form method="POST" action="/system/arm" onsubmit="return confirm('确认启动交易？{{ if eq .Mode "live" }}注意：当前是 LIVE 模式，会真实下单。{{ end }}')">
+        <button class="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-3 rounded">
+          启动交易（arm）{{ if eq .Mode "live" }} — LIVE 模式{{ end }}
+        </button>
+      </form>
+    {{ end }}
+
+    {{ if .State.BreakerTripped }}
+      <form method="POST" action="/system/breaker/reset" onsubmit="return confirm('确认重置熔断器？这将允许新的交易信号通过。')">
+        <button class="w-full bg-orange-600 hover:bg-orange-700 text-white font-medium py-3 rounded">
+          重置熔断器
+        </button>
+      </form>
+    {{ end }}
+  </div>
+</div>
+{{ end }}

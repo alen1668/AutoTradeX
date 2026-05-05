@@ -1,0 +1,67 @@
+{{ define "content" }}
+<h1 class="text-2xl font-bold mb-6">系统配置</h1>
+
+{{ if .Saved }}
+<div class="bg-green-100 border border-green-400 text-green-700 px-4 py-2 rounded mb-4">
+  已保存
+</div>
+{{ end }}
+
+<div class="bg-yellow-50 border-l-4 border-yellow-500 p-3 text-sm mb-6">
+  风控阈值修改即时生效。通知配置（飞书/Telegram）修改后需要<strong>重启 bot</strong> 才会启用新的渠道。
+</div>
+
+<div class="bg-white shadow rounded p-6 mb-6">
+  <h2 class="text-lg font-semibold mb-4">风控阈值（实时生效）</h2>
+  <form method="POST" action="/settings/risk" class="space-y-4 max-w-xl">
+    <div>
+      <label class="block text-sm font-medium">全局总杠杆上限</label>
+      <input type="text" name="max_total_leverage" value="{{ .Settings.MaxTotalLeverage }}" required class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+      <p class="text-xs text-gray-500 mt-1">所有活跃仓位名义价值之和 ÷ 账户权益不得超过此值。例 3.0 表示 3 倍。</p>
+    </div>
+    <div>
+      <label class="block text-sm font-medium">日亏熔断阈值（USDC）</label>
+      <input type="text" name="max_daily_loss_usdc" value="{{ .Settings.MaxDailyLossUSDC }}" required class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+      <p class="text-xs text-gray-500 mt-1">当日累计亏损超过此值时触发熔断，所有新开仓信号被拒绝（平仓信号仍允许）。</p>
+    </div>
+    <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">保存风控配置</button>
+  </form>
+</div>
+
+<div class="bg-white shadow rounded p-6 mb-6">
+  <h2 class="text-lg font-semibold mb-4">通知配置（修改后需重启）</h2>
+  <form method="POST" action="/settings/notifier" class="space-y-4 max-w-xl">
+    <fieldset class="border rounded p-4">
+      <legend class="px-2 font-medium">飞书</legend>
+      <div class="space-y-3">
+        <label class="inline-flex items-center">
+          <input type="checkbox" name="feishu_enabled" {{ if .Settings.FeishuEnabled }}checked{{ end }}>
+          <span class="ml-2">启用</span>
+        </label>
+        <div>
+          <label class="block text-sm font-medium">Webhook URL</label>
+          <input type="text" name="feishu_webhook_url" value="{{ .Settings.FeishuURL }}" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..." class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+        </div>
+      </div>
+    </fieldset>
+    <fieldset class="border rounded p-4">
+      <legend class="px-2 font-medium">Telegram</legend>
+      <div class="space-y-3">
+        <label class="inline-flex items-center">
+          <input type="checkbox" name="telegram_enabled" {{ if .Settings.TelegramEnabled }}checked{{ end }}>
+          <span class="ml-2">启用</span>
+        </label>
+        <div>
+          <label class="block text-sm font-medium">Bot Token</label>
+          <input type="text" name="telegram_bot_token" value="{{ .Settings.TelegramBotToken }}" placeholder="123456:ABC..." class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+        </div>
+        <div>
+          <label class="block text-sm font-medium">Chat ID</label>
+          <input type="text" name="telegram_chat_id" value="{{ .Settings.TelegramChatID }}" placeholder="-100..." class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+        </div>
+      </div>
+    </fieldset>
+    <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">保存通知配置</button>
+  </form>
+</div>
+{{ end }}

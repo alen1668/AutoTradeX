@@ -185,7 +185,9 @@ func main() {
 	strategiesHandler := admin.NewStrategiesHandler(renderer, strategyRepo, pool, statusHandler)
 	positionsHandler := admin.NewPositionsHandler(renderer, pool, posRepo, strategyRepo, historyRepo, statusHandler)
 	signalsHandler := admin.NewSignalsHandler(renderer, pool, signalRepo, statusHandler)
-	systemHandler := admin.NewSystemHandler(systemRepo, pool, sess)
+	systemHandler := admin.NewSystemHandler(systemRepo, pool, sess, renderer, statusHandler, cfg.BotMode)
+	statsHandler := admin.NewStatsHandler(renderer, pool, statusHandler)
+	settingsHandler := admin.NewSettingsHandler(renderer, pool, settingsRepo, statusHandler)
 
 	// ── webhook handler ──────────────────────────────────────────────────────
 	webhookHandler := webhook.NewHandler(ingestSvc, logger)
@@ -238,9 +240,18 @@ func main() {
 			r.Get("/signals", signalsHandler.Index)
 
 			// System controls
+			r.Get("/system", systemHandler.Index)
 			r.Post("/system/arm", systemHandler.Arm)
 			r.Post("/system/disarm", systemHandler.Disarm)
 			r.Post("/system/breaker/reset", systemHandler.ResetBreaker)
+
+			// Stats
+			r.Get("/stats", statsHandler.Index)
+
+			// Settings
+			r.Get("/settings", settingsHandler.Index)
+			r.Post("/settings/risk", settingsHandler.SaveRisk)
+			r.Post("/settings/notifier", settingsHandler.SaveNotifier)
 
 			// Status partial (HTMX hx-get for status bar auto-refresh)
 			r.Get("/_partials/status", statusHandler.Partial)
