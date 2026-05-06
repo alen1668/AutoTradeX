@@ -23,8 +23,6 @@ func TestTestnetMarketOrderRoundTrip(t *testing.T) {
 	}
 	secret := os.Getenv("BINANCE_TESTNET_SECRET")
 	tr := New(config.BinanceConfig{
-		BaseURLLive:    "https://fapi.binance.com",
-		BaseURLTestnet: "https://testnet.binancefuture.com",
 		OrderTimeoutMs: 10000,
 	}, key, secret, config.ModeTestnet, zerolog.Nop())
 

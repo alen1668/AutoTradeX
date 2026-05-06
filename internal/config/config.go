@@ -72,11 +72,16 @@ type TelegramConfig struct {
 	Enabled  bool   `yaml:"enabled"`
 }
 
+// BinanceConfig holds tunables for the Binance USDT-M perp adapter.
+//
+// Note: base URLs are NOT configured here. The adshao/go-binance/v2 SDK
+// internally selects between live (https://fapi.binance.com) and testnet
+// (https://testnet.binancefuture.com) via its package-global `futures.UseTestnet`
+// boolean, driven by the BOT_MODE env var. Adding a third endpoint such as
+// demo-fapi.binance.com would require bypassing the SDK switch.
 type BinanceConfig struct {
-	BaseURLLive    string `yaml:"base_url_live"`
-	BaseURLTestnet string `yaml:"base_url_testnet"`
-	RecvWindowMs   int    `yaml:"recv_window_ms"`
-	OrderTimeoutMs int    `yaml:"order_timeout_ms"`
+	RecvWindowMs   int `yaml:"recv_window_ms"`
+	OrderTimeoutMs int `yaml:"order_timeout_ms"`
 }
 
 type ReconcilerConfig struct {

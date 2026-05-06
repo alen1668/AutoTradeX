@@ -62,8 +62,6 @@ risk:
 ip_whitelist:
   - 10.0.0.1
 binance:
-  base_url_live: "https://fapi.binance.com"
-  base_url_testnet: "https://testnet.binancefuture.com"
   recv_window_ms: 5000
   order_timeout_ms: 3000
 reconciler:
