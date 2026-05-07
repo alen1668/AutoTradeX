@@ -31,15 +31,23 @@ type Totals struct {
 }
 
 // StatsHandler renders the /stats page.
+//
+// When an IncomeFetcher is wired (testnet/live), $ P&L per day comes from
+// Binance's /fapi/v1/income — the single source of truth for realized P&L,
+// commissions, and funding. Trade counts and win rate continue to come from
+// the DB's position_history (Binance has no concept of our strategy_id).
+// In dry_run mode no fetcher is wired and the page falls back to DB-only.
 type StatsHandler struct {
 	render  *Renderer
 	pool    *pgxpool.Pool
 	statusH *StatusHandler
+	income  IncomeFetcher // nil in dry_run mode
+	cache   *incomeCache
 }
 
-// NewStatsHandler constructs a StatsHandler.
-func NewStatsHandler(r *Renderer, pool *pgxpool.Pool, statusH *StatusHandler) *StatsHandler {
-	return &StatsHandler{render: r, pool: pool, statusH: statusH}
+// NewStatsHandler constructs a StatsHandler. Pass income=nil for DB-only mode.
+func NewStatsHandler(r *Renderer, pool *pgxpool.Pool, statusH *StatusHandler, income IncomeFetcher) *StatsHandler {
+	return &StatsHandler{render: r, pool: pool, statusH: statusH, income: income, cache: newIncomeCache(30 * time.Second)}
 }
 
 // Index handles GET /stats.
@@ -54,6 +62,22 @@ func (h *StatsHandler) Index(w http.ResponseWriter, r *http.Request) {
 		"Totals": totals,
 	})
 	h.render.Render(w, http.StatusOK, "stats/index", data)
+}
+
+// fetchBinanceDaily returns the Binance income aggregated by UTC day for
+// the given window, with a 30s in-memory cache to avoid hammering the API
+// on each /stats page load.
+func (h *StatsHandler) fetchBinanceDaily(ctx context.Context, since, until time.Time) (map[time.Time]IncomeDaily, error) {
+	records, ok := h.cache.get(since, until)
+	if !ok {
+		var err error
+		records, err = h.income.Income(ctx, since, until)
+		if err != nil {
+			return nil, err
+		}
+		h.cache.set(since, until, records)
+	}
+	return aggregateIncome(records), nil
 }
 
 // queryDaily returns per-day stats for the last `days` days, newest first,
@@ -86,6 +110,25 @@ ORDER BY day ASC`, days)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, Totals{}, err
+	}
+
+	// If a Binance IncomeFetcher is wired, override per-day $ P&L with the
+	// exchange's authoritative income totals (REALIZED_PNL + COMMISSION +
+	// FUNDING_FEE). Trade counts/wins still come from DB above.
+	if h.income != nil {
+		until := time.Now().UTC().Add(24 * time.Hour) // include today
+		since := until.AddDate(0, 0, -days-1)
+		if daily, err := h.fetchBinanceDaily(ctx, since, until); err == nil {
+			for i := range raw {
+				if d, ok := daily[raw[i].Date.UTC()]; ok {
+					raw[i].PnLUSDC = d.NetIncome
+				} else {
+					raw[i].PnLUSDC = decimal.Zero
+				}
+			}
+		}
+		// On error, leave raw[].PnLUSDC as DB values — soft fallback so the
+		// page still renders if Binance is briefly unreachable.
 	}
 
 	// Compute cumulative PnL and win rate (oldest→newest order).

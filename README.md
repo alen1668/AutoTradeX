@@ -349,8 +349,9 @@ https://random-words-xxxx-yyyy.trycloudflare.com/webhook/tv
   "strategy_id": "macd_eth_long",
   "symbol": "{{ticker}}",
   "signal": "{{strategy.order.action}}",
+  "position_size": "{{strategy.position_size}}",
   "price": "{{close}}",
-  "timestamp": {{time}},
+  "timestamp": "{{time}}",
   "secret": "你在 bot 后台设的 webhook secret"
 }
 ```
@@ -360,7 +361,20 @@ https://random-words-xxxx-yyyy.trycloudflare.com/webhook/tv
 1. `"strategy_id": "macd_eth_long"` —— 改成你在 bot 后台 /strategies 创建的那个 ID
 2. `"secret": "..."` —— 改成你在 /settings 里设的 Webhook Secret
 
-**不要动**的：`{{ticker}}`、`{{strategy.order.action}}`、`{{close}}`、`{{time}}` 这些是 TradingView 的占位符，触发时自动替换。
+**不要动**的：`{{ticker}}`、`{{strategy.order.action}}`、`{{strategy.position_size}}`、`{{close}}`、`{{time}}` 这些是 TradingView 的占位符，触发时自动替换。
+
+> 💡 `timestamp` 必须用引号包起来：TradingView 的 `{{time}}` 输出 ISO 8601 字符串（`2026-05-06T15:29:00Z`）而不是数字，不加引号会破坏 JSON 语法。bot 同时支持 ISO 字符串和 Unix 毫秒数字两种格式。
+
+> 💡 `signal` + `position_size` 配合使用：TradingView 策略告警里 `{{strategy.order.action}}` 只输出 `buy`/`sell`，无法区分「开多」「平空」。bot 用 `{{strategy.position_size}}`（下单后仓位）消歧：
+>
+> | signal | position_size | bot 解读 |
+> |--------|---------------|---------|
+> | buy    | > 0           | 开多（long）|
+> | buy    | == 0          | 平空（exit_short）|
+> | sell   | < 0           | 开空（short）|
+> | sell   | == 0          | 平多（exit_long）|
+>
+> 如果你用 curl 手动测试或者 Pine 自定义 alert，也可以直接发 `"signal": "long"` / `"short"` / `"exit_long"` / `"exit_short"`，这种情况下 `position_size` 字段可以省略。
 
 #### 3.6 创建告警
 

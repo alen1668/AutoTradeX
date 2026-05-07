@@ -130,11 +130,7 @@ func (s *Service) Ingest(ctx context.Context, body []byte, clientIP net.IP) (*In
 	if !dec.Allowed {
 		_ = s.signalRepo.UpdateDecision(ctx, s.pool, signalID, "risk_denied",
 			fmt.Sprintf("%s: %s", dec.RuleName, dec.Reason))
-		_ = s.notifier.Send(ctx, notify.Message{
-			Title:    "Signal denied",
-			Body:     fmt.Sprintf("%s denied by %s: %s", sig.StrategyID, dec.RuleName, dec.Reason),
-			Severity: notify.SeverityWarn,
-		})
+		_ = s.notifier.Send(ctx, BuildDeniedMessage(sig.StrategyID, sig.Symbol, string(sig.Kind), dec.RuleName, dec.Reason))
 		return &IngestResult{
 			SignalID: signalID, Decision: "risk_denied",
 			RuleName: dec.RuleName, Reason: dec.Reason,
@@ -155,39 +151,36 @@ func (s *Service) Ingest(ctx context.Context, body []byte, clientIP net.IP) (*In
 		if action == position.ActionOpenShort {
 			side = position.SideShort
 		}
-		if _, err := s.trade.OpenPosition(ctx, trade.OpenInput{
+		openRes, err := s.trade.OpenPosition(ctx, trade.OpenInput{
 			Strategy:    loadCtx.Strategy,
 			Side:        side,
 			SignalPrice: sig.Price,
 			SignalID:    signalID,
 			TraceID:     sig.TraceID(),
-		}); err != nil {
+		})
+		if err != nil {
 			_ = s.signalRepo.UpdateDecision(ctx, s.pool, signalID, "accepted", "open failed: "+err.Error())
-			_ = s.notifier.Send(ctx, notify.Message{
-				Title: "Open failed", Body: err.Error(), Severity: notify.SeverityCritical,
-			})
+			_ = s.notifier.Send(ctx, BuildOpenFailedMessage(sig.StrategyID, sig.Symbol, string(sig.Kind), err.Error()))
 			return nil, err
 		}
 		_ = s.signalRepo.UpdateDecision(ctx, s.pool, signalID, "accepted", string(action))
-		_ = s.notifier.Send(ctx, notify.Message{
-			Title: "Open " + string(action),
-			Body:  fmt.Sprintf("%s @ signal=%s", sig.StrategyID, sig.Price),
-		})
+		_ = s.notifier.Send(ctx, BuildOpenMessage(loadCtx.Strategy, string(side), sig.Price, openRes.EntryFillPrice, openRes.Qty))
 		return res, nil
 
 	case position.ActionClose:
 		if loadCtx.CurrentPosition == nil {
 			return res, nil
 		}
-		if _, err := s.trade.ClosePosition(ctx, closeInputFromLoad(loadCtx.CurrentPosition, sig, "signal")); err != nil {
+		pos := loadCtx.CurrentPosition
+		closeRes, err := s.trade.ClosePosition(ctx, closeInputFromLoad(pos, sig, "signal"))
+		if err != nil {
 			_ = s.signalRepo.UpdateDecision(ctx, s.pool, signalID, "accepted", "close failed: "+err.Error())
-			_ = s.notifier.Send(ctx, notify.Message{
-				Title: "Close failed", Body: err.Error(), Severity: notify.SeverityCritical,
-			})
+			_ = s.notifier.Send(ctx, BuildCloseFailedMessage(sig.StrategyID, sig.Symbol, err.Error()))
 			return nil, err
 		}
 		_ = s.signalRepo.UpdateDecision(ctx, s.pool, signalID, "accepted", "close")
-		_ = s.notifier.Send(ctx, notify.Message{Title: "Closed", Body: sig.StrategyID})
+		_ = s.notifier.Send(ctx, BuildCloseMessage(loadCtx.Strategy, string(pos.Side),
+			pos.EntryFillPrice, closeRes.ExitFillPrice, pos.Qty, closeRes.PnLUSDC))
 		return res, nil
 
 	case position.ActionCloseAndOpenLong, position.ActionCloseAndOpenShort:

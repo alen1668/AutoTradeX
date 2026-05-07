@@ -1,5 +1,43 @@
 {{ define "content" }}
 <h1 class="text-2xl font-bold mb-4">信号日志</h1>
+
+<form method="get" action="/signals" class="bg-white shadow rounded p-3 mb-4 flex flex-wrap gap-3 items-end text-sm">
+  <div>
+    <label class="block text-xs text-gray-500 mb-1">decision</label>
+    <select name="decision" class="border rounded px-2 py-1">
+      <option value="">全部</option>
+      {{ range .Page.Decisions }}
+        <option value="{{ . }}" {{ if eq . $.Page.Filter.Decision }}selected{{ end }}>{{ . }}</option>
+      {{ end }}
+    </select>
+  </div>
+  <div>
+    <label class="block text-xs text-gray-500 mb-1">策略</label>
+    <select name="strategy" class="border rounded px-2 py-1">
+      <option value="">全部</option>
+      {{ range .Page.Strategies }}
+        <option value="{{ . }}" {{ if eq . $.Page.Filter.StrategyID }}selected{{ end }}>{{ . }}</option>
+      {{ end }}
+    </select>
+  </div>
+  <div>
+    <label class="block text-xs text-gray-500 mb-1">币种</label>
+    <select name="symbol" class="border rounded px-2 py-1">
+      <option value="">全部</option>
+      {{ range .Page.Symbols }}
+        <option value="{{ . }}" {{ if eq . $.Page.Filter.Symbol }}selected{{ end }}>{{ . }}</option>
+      {{ end }}
+    </select>
+  </div>
+  <div class="flex gap-2">
+    <button type="submit" class="bg-blue-600 text-white px-3 py-1 rounded">筛选</button>
+    <a href="/signals" class="border px-3 py-1 rounded">清空</a>
+  </div>
+  <div class="ml-auto text-xs text-gray-500 self-center">
+    共 <span class="font-medium">{{ .Page.Total }}</span> 条
+  </div>
+</form>
+
 <table class="w-full bg-white shadow rounded text-sm">
   <thead class="bg-gray-100 text-left">
     <tr>
@@ -16,7 +54,11 @@
   <tbody>
     {{ range .Signals }}
     <tr class="border-t">
-      <td class="px-3 py-2 text-xs">{{ .ReceivedAt.Format "01-02 15:04:05" }}</td>
+      <td class="px-3 py-2 text-xs">
+        <span class="local-time" data-utc="{{ .ReceivedAt.UTC.Format "2006-01-02T15:04:05Z" }}">
+          {{ .ReceivedAt.UTC.Format "01-02 15:04:05" }} UTC
+        </span>
+      </td>
       <td class="px-3 py-2 font-mono">{{ .StrategyID }}</td>
       <td class="px-3 py-2">{{ .Symbol }}</td>
       <td class="px-3 py-2">{{ .Kind }}</td>
@@ -44,4 +86,34 @@
     {{ end }}
   </tbody>
 </table>
+
+<div class="mt-4 flex items-center justify-between text-sm">
+  <div class="text-gray-500">第 {{ .Page.Page }} / {{ .Page.TotalPages }} 页</div>
+  <div class="flex gap-2">
+    {{ if gt .Page.Page 1 }}
+      <a href="/signals?{{ .Page.PrevQS }}" class="border px-3 py-1 rounded">← 上一页</a>
+    {{ else }}
+      <span class="border px-3 py-1 rounded text-gray-300">← 上一页</span>
+    {{ end }}
+    {{ if lt .Page.Page .Page.TotalPages }}
+      <a href="/signals?{{ .Page.NextQS }}" class="border px-3 py-1 rounded">下一页 →</a>
+    {{ else }}
+      <span class="border px-3 py-1 rounded text-gray-300">下一页 →</span>
+    {{ end }}
+  </div>
+</div>
+
+<script>
+  // Render UTC times in browser-local timezone. Server emits ISO 8601 in
+  // data-utc; we replace the visible text with a localized format.
+  document.querySelectorAll('.local-time').forEach(el => {
+    const iso = el.getAttribute('data-utc');
+    if (!iso) return;
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return;
+    const pad = n => String(n).padStart(2, '0');
+    el.textContent = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    el.title = iso;
+  });
+</script>
 {{ end }}

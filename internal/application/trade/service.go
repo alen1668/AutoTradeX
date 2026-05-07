@@ -209,7 +209,10 @@ func (s *Service) placeProtectiveOrders(ctx context.Context, tx pgx.Tx, vpID int
 	}
 
 	// 2) Backup market stop
-	backupClientID := fmt.Sprintf("backup_stop-%s-%d", traceID, vpID)
+	// "bstop"/"tp" prefixes (instead of "backup_stop"/"take_profit") keep the
+	// Binance clientOrderId under the 35-char limit (-4015). The internal
+	// `purpose` column on orders rows is unaffected.
+	backupClientID := fmt.Sprintf("bstop-%s-%d", traceID, vpID)
 	if _, err := s.trader.Place(ctx, tradepkg.OrderRequest{
 		ClientOrderID: backupClientID, Symbol: strat.Symbol, Side: exitSide,
 		Type: tradepkg.OrderTypeStopMarket, Qty: qty, StopPrice: backupTrigger,
@@ -231,7 +234,7 @@ func (s *Service) placeProtectiveOrders(ctx context.Context, tx pgx.Tx, vpID int
 	if strat.HasTakeProfit() {
 		tpPct := strat.TakeProfitPct.Div(decimal.NewFromInt(100))
 		tpTrigger := entryFill.Mul(decimal.NewFromInt(1).Add(tpPct.Mul(dir)))
-		tpClientID := fmt.Sprintf("take_profit-%s-%d", traceID, vpID)
+		tpClientID := fmt.Sprintf("tp-%s-%d", traceID, vpID)
 		if _, err := s.trader.Place(ctx, tradepkg.OrderRequest{
 			ClientOrderID: tpClientID, Symbol: strat.Symbol, Side: exitSide,
 			Type: tradepkg.OrderTypeTakeProfitMarket, Qty: qty, StopPrice: tpTrigger,

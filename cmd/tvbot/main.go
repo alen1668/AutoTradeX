@@ -199,7 +199,14 @@ func main() {
 	positionsHandler := admin.NewPositionsHandler(renderer, pool, posRepo, strategyRepo, historyRepo, statusHandler)
 	signalsHandler := admin.NewSignalsHandler(renderer, pool, signalRepo, statusHandler)
 	systemHandler := admin.NewSystemHandler(systemRepo, pool, sess, renderer, statusHandler, cfg.BotMode)
-	statsHandler := admin.NewStatsHandler(renderer, pool, statusHandler)
+	// Inject IncomeFetcher only when running against a real exchange (testnet
+	// or live). DryRun has no Binance side, so the stats page falls back to
+	// the DB position_history.
+	var incomeFetcher admin.IncomeFetcher
+	if bt, ok := trader.(*binanceinfra.Trader); ok {
+		incomeFetcher = bt
+	}
+	statsHandler := admin.NewStatsHandler(renderer, pool, statusHandler, incomeFetcher)
 	settingsHandler := admin.NewSettingsHandler(renderer, pool, settingsRepo, statusHandler)
 
 	// ── webhook handler ──────────────────────────────────────────────────────
