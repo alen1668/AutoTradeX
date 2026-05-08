@@ -66,10 +66,62 @@ RETURNING id`
 	return 0, false, err
 }
 
+// UpdateDecision finalizes a signal that's currently in the 'pending'
+// decision state. The WHERE-pending guard is a no-op safety net so a
+// duplicate enqueue (e.g. from startup recovery racing a fresh webhook)
+// can't overwrite a finalized decision.
 func (r *SignalRepo) UpdateDecision(ctx context.Context, q Querier, id int64, decision, reason string) error {
 	_, err := q.Exec(ctx,
-		`UPDATE signals SET decision=$1, decision_reason=$2 WHERE id=$3`,
+		`UPDATE signals SET decision=$1, decision_reason=$2
+		  WHERE id=$3 AND decision='pending'`,
 		decision, nullableString(reason), id)
+	return err
+}
+
+// ListPendingForRecovery returns pending signals received after `since`,
+// ordered oldest-first (FIFO) so the recovery loop submits them to the
+// dispatcher in the order they originally arrived.
+func (r *SignalRepo) ListPendingForRecovery(ctx context.Context, q Querier, since time.Time) ([]*SignalRow, error) {
+	rows, err := q.Query(ctx, `
+SELECT id, strategy_id, symbol, kind::text, signal_price, tv_timestamp_ms,
+       received_at, raw_payload, client_ip, decision,
+       COALESCE(decision_reason,''), COALESCE(trace_id,'')
+  FROM signals
+ WHERE decision='pending' AND received_at >= $1
+ ORDER BY received_at ASC`, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*SignalRow
+	for rows.Next() {
+		var s SignalRow
+		var rawPayload []byte
+		var clientIP *net.IP
+		if err := rows.Scan(&s.ID, &s.StrategyID, &s.Symbol, &s.Kind,
+			&s.SignalPrice, &s.TVTimestampMs, &s.ReceivedAt, &rawPayload,
+			&clientIP, &s.Decision, &s.DecisionReason, &s.TraceID); err != nil {
+			return nil, err
+		}
+		s.RawPayload = json.RawMessage(rawPayload)
+		if clientIP != nil {
+			s.ClientIP = *clientIP
+		}
+		out = append(out, &s)
+	}
+	return out, rows.Err()
+}
+
+// MarkAbandoned flips signals to decision='abandoned' (with the given reason)
+// only if they're currently 'pending'. Already-finalized rows are left alone.
+func (r *SignalRepo) MarkAbandoned(ctx context.Context, q Querier, ids []int64, reason string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := q.Exec(ctx,
+		`UPDATE signals SET decision='abandoned', decision_reason=$2
+		  WHERE id = ANY($1) AND decision='pending'`,
+		ids, nullableString(reason))
 	return err
 }
 

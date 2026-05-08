@@ -63,7 +63,7 @@ func TestStrategyRepo_List(t *testing.T) {
 			MaxOpenUSDC: decimal.NewFromInt(100), Enabled: true,
 		}))
 	}
-	rows, err := repo.List(ctx, pool)
+	rows, err := repo.List(ctx, pool, false)
 	require.NoError(t, err)
 	assert.Len(t, rows, 3)
 }
