@@ -7,7 +7,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"github.com/lizhaojie/tvbot/internal/web/admin"
+	"github.com/lizhaojie/tvbot/internal/trade"
 )
 
 // Binance returns at most 1000 records per call. We page back from `until`
@@ -16,11 +16,11 @@ const incomePageLimit = 1000
 
 // Income fetches income history (REALIZED_PNL, COMMISSION, FUNDING_FEE,
 // etc.) from Binance for the given UTC window. Implements admin.IncomeFetcher.
-func (t *Trader) Income(ctx context.Context, since, until time.Time) ([]admin.IncomeRecord, error) {
+func (t *Trader) Income(ctx context.Context, since, until time.Time) ([]trade.IncomeRecord, error) {
 	cctx, cancel := context.WithTimeout(ctx, t.timeout)
 	defer cancel()
 
-	var out []admin.IncomeRecord
+	var out []trade.IncomeRecord
 	endMs := until.UnixMilli()
 	startMs := since.UnixMilli()
 
@@ -35,7 +35,7 @@ func (t *Trader) Income(ctx context.Context, since, until time.Time) ([]admin.In
 		}
 		for _, r := range raw {
 			inc, _ := decimal.NewFromString(r.Income)
-			out = append(out, admin.IncomeRecord{
+			out = append(out, trade.IncomeRecord{
 				Type:   r.IncomeType,
 				Income: inc,
 				Symbol: r.Symbol,

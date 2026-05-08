@@ -1,29 +1,19 @@
 package admin
 
 import (
-	"context"
 	"sync"
 	"time"
 
 	"github.com/shopspring/decimal"
+
+	"github.com/lizhaojie/tvbot/internal/trade"
 )
 
-// IncomeRecord is the exchange-agnostic shape of one income event from the
-// account: a realized P&L line, a commission charge, or a funding payment.
-// The admin pkg owns this type so it doesn't pull in the Binance SDK.
-type IncomeRecord struct {
-	Type   string          // "REALIZED_PNL" | "COMMISSION" | "FUNDING_FEE" | other
-	Income decimal.Decimal // signed; commission is negative, realized P&L can be either
-	Symbol string
-	Time   time.Time // UTC
-}
-
-// IncomeFetcher fetches income events from the exchange for a time window.
-// BinanceTrader implements it; in dry_run mode no fetcher is wired and the
-// stats handler falls back to DB-only.
-type IncomeFetcher interface {
-	Income(ctx context.Context, since, until time.Time) ([]IncomeRecord, error)
-}
+// IncomeRecord and IncomeFetcher were moved to internal/trade so that
+// non-web callers (e.g. recovery) can also consume them. Aliased here
+// to keep admin's public API (and existing tests) unchanged.
+type IncomeRecord = trade.IncomeRecord
+type IncomeFetcher = trade.IncomeFetcher
 
 // IncomeDaily is the per-day aggregate used by the /stats page when the
 // fetcher is available. NetIncome = RealizedPnL + Commission + FundingFee.
@@ -54,6 +44,24 @@ func aggregateIncome(records []IncomeRecord) map[time.Time]IncomeDaily {
 		}
 		d.NetIncome = d.NetIncome.Add(r.Income)
 		out[day] = d
+	}
+	return out
+}
+
+// aggregateIncomeBySymbol returns netIncome[day][symbol] — the sum of
+// REALIZED_PNL + COMMISSION + FUNDING_FEE per (day, symbol). Used to drive
+// the stacked bar chart on /stats.
+func aggregateIncomeBySymbol(records []IncomeRecord) map[time.Time]map[string]decimal.Decimal {
+	out := make(map[time.Time]map[string]decimal.Decimal)
+	for _, r := range records {
+		if r.Symbol == "" {
+			continue // skip account-level events that aren't tied to a symbol
+		}
+		day := time.Date(r.Time.Year(), r.Time.Month(), r.Time.Day(), 0, 0, 0, 0, time.UTC)
+		if out[day] == nil {
+			out[day] = make(map[string]decimal.Decimal)
+		}
+		out[day][r.Symbol] = out[day][r.Symbol].Add(r.Income)
 	}
 	return out
 }
