@@ -18,10 +18,10 @@
     <div>
       <label class="block text-sm font-medium">全局总杠杆上限</label>
       <input type="text" name="max_total_leverage" value="{{ .Settings.MaxTotalLeverage }}" required class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
-      <p class="text-xs text-gray-500 mt-1">所有活跃仓位名义价值之和 ÷ 账户权益不得超过此值。例 3.0 表示 3 倍。</p>
+      <p class="text-xs text-gray-500 mt-1">所有活跃仓位金额之和 ÷ 账户余额不得超过此值。例 3.0 表示 3 倍。</p>
     </div>
     <div>
-      <label class="block text-sm font-medium">日亏熔断阈值（USDC）</label>
+      <label class="block text-sm font-medium">日亏熔断阈值 ($)</label>
       <input type="text" name="max_daily_loss_usdc" value="{{ .Settings.MaxDailyLossUSDC }}" required class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
       <p class="text-xs text-gray-500 mt-1">当日累计亏损超过此值时触发熔断，所有新开仓信号被拒绝（平仓信号仍允许）。</p>
     </div>

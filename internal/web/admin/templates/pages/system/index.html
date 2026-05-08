@@ -23,9 +23,9 @@
       </div>
     </div>
     <div>
-      <div class="text-gray-500">当日 PnL</div>
+      <div class="text-gray-500">当日盈亏</div>
       <div class="font-bold text-lg {{ if .State.DailyPnLUSDC.IsNegative }}text-red-600{{ else }}text-green-700{{ end }}">
-        {{ .State.DailyPnLUSDC }} USDC
+        ${{ .State.DailyPnLUSDC }}
       </div>
     </div>
   </div>
