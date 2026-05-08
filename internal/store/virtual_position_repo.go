@@ -122,3 +122,53 @@ func (r *VirtualPositionRepo) scanOne(ctx context.Context, q Querier, sql string
 	}
 	return &v, nil
 }
+
+// ListActive returns every currently-open virtual position across all
+// strategies (status in opening/open/closing). Used by the agent
+// portfolio provider to feed the LLM the system-wide exposure snapshot.
+func (r *VirtualPositionRepo) ListActive(ctx context.Context, q Querier) ([]*VirtualPositionRow, error) {
+	rows, err := q.Query(ctx, `
+SELECT id, strategy_id, symbol, side, qty, entry_signal_price, entry_fill_price,
+       entry_signal_id, entry_order_id, stop_order_id, backup_stop_order_id,
+       take_profit_order_id, status, opened_at, closed_at
+  FROM virtual_positions
+ WHERE status IN ('opening','open','closing')
+ ORDER BY opened_at ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*VirtualPositionRow
+	for rows.Next() {
+		var v VirtualPositionRow
+		var entryFill *decimal.Decimal
+		var entryOrderID, stopID, backupID, tpID *int64
+		var closedAt *time.Time
+		if err := rows.Scan(&v.ID, &v.StrategyID, &v.Symbol, &v.Side, &v.Qty,
+			&v.EntrySignalPrice, &entryFill,
+			&v.EntrySignalID, &entryOrderID, &stopID, &backupID, &tpID,
+			&v.Status, &v.OpenedAt, &closedAt); err != nil {
+			return nil, err
+		}
+		if entryFill != nil {
+			v.EntryFillPrice = *entryFill
+		}
+		if entryOrderID != nil {
+			v.EntryOrderID = *entryOrderID
+		}
+		if stopID != nil {
+			v.StopOrderID = *stopID
+		}
+		if backupID != nil {
+			v.BackupStopOrderID = *backupID
+		}
+		if tpID != nil {
+			v.TakeProfitOrderID = *tpID
+		}
+		if closedAt != nil {
+			v.ClosedAt = *closedAt
+		}
+		out = append(out, &v)
+	}
+	return out, rows.Err()
+}

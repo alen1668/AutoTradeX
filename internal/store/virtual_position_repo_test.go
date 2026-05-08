@@ -127,3 +127,75 @@ func TestVirtualPositionRepo_TransitionStatus(t *testing.T) {
 	_, err = repo.GetActiveByStrategy(ctx, pool, "s")
 	assert.True(t, errors.Is(err, pgx.ErrNoRows))
 }
+
+func TestVirtualPositionRepo_ListActive(t *testing.T) {
+	pool := testPool(t)
+	repo := NewVirtualPositionRepo(pool)
+	stratRepo := NewStrategyRepo(nil)
+	sigRepo := NewSignalRepo(nil)
+	ctx := context.Background()
+
+	for _, sid := range []string{"s1", "s2", "s3"} {
+		require.NoError(t, stratRepo.Create(ctx, pool, StrategyRow{
+			ID: sid, Symbol: "ETHUSDC", Leverage: 1,
+			SizeUSDC: decimal.NewFromInt(10), StopLossPct: decimal.NewFromFloat(1),
+			MaxOpenUSDC: decimal.NewFromInt(100), Enabled: true,
+		}))
+	}
+
+	insertSignal := func(sid string, ts int64) int64 {
+		id, _, err := sigRepo.Insert(ctx, pool, SignalRow{
+			StrategyID: sid, Symbol: "ETHUSDC", Kind: "long",
+			SignalPrice: decimal.NewFromInt(2300), TVTimestampMs: ts,
+			ReceivedAt: time.Now().UTC(), RawPayload: json.RawMessage(`{}`),
+			ClientIP: net.ParseIP("127.0.0.1"), Decision: "accepted", TraceID: "t",
+		})
+		require.NoError(t, err)
+		return id
+	}
+
+	// 2 active (open / opening), 1 closed
+	sig1 := insertSignal("s1", 1)
+	id1, err := repo.Insert(ctx, pool, VirtualPositionRow{
+		StrategyID: "s1", Symbol: "ETHUSDC", Side: "long",
+		Qty: decimal.NewFromFloat(1), EntrySignalPrice: decimal.NewFromInt(2300),
+		EntrySignalID: sig1, Status: "open",
+	})
+	require.NoError(t, err)
+
+	sig2 := insertSignal("s2", 2)
+	_, err = repo.Insert(ctx, pool, VirtualPositionRow{
+		StrategyID: "s2", Symbol: "ETHUSDC", Side: "short",
+		Qty: decimal.NewFromFloat(0.5), EntrySignalPrice: decimal.NewFromInt(2400),
+		EntrySignalID: sig2, Status: "opening",
+	})
+	require.NoError(t, err)
+
+	sig3 := insertSignal("s3", 3)
+	id3, err := repo.Insert(ctx, pool, VirtualPositionRow{
+		StrategyID: "s3", Symbol: "ETHUSDC", Side: "long",
+		Qty: decimal.NewFromFloat(0.3), EntrySignalPrice: decimal.NewFromInt(2200),
+		EntrySignalID: sig3, Status: "open",
+	})
+	require.NoError(t, err)
+	require.NoError(t, repo.MarkClosed(ctx, pool, id3))
+
+	out, err := repo.ListActive(ctx, pool)
+	require.NoError(t, err)
+	assert.Len(t, out, 2, "should exclude closed positions")
+
+	gotIDs := map[int64]bool{}
+	for _, v := range out {
+		gotIDs[v.ID] = true
+	}
+	assert.True(t, gotIDs[id1])
+	assert.False(t, gotIDs[id3])
+}
+
+func TestVirtualPositionRepo_ListActive_Empty(t *testing.T) {
+	pool := testPool(t)
+	repo := NewVirtualPositionRepo(pool)
+	out, err := repo.ListActive(context.Background(), pool)
+	require.NoError(t, err)
+	assert.Empty(t, out)
+}
