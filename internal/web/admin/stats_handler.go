@@ -54,12 +54,109 @@ func (h *StatsHandler) Index(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Agent stats are best-effort — rendering the page must not fail just
+	// because no scorer rows exist yet (or the schema is partially migrated).
+	agent, _ := h.queryAgentStats(r.Context())
 	data := h.statusH.WithStatus(r, map[string]any{
-		"Stats":   stats,
-		"Totals":  totals,
-		"Symbols": symbols, // sorted, drives chart datasets + colors
+		"Stats":      stats,
+		"Totals":     totals,
+		"Symbols":    symbols, // sorted, drives chart datasets + colors
+		"AgentStats": agent,
 	})
 	h.render.Render(w, http.StatusOK, "stats/index", data)
+}
+
+// AgentStats summarises recent scorer behavior for the /stats page.
+type AgentStats struct {
+	Buckets        []ScoreBucket
+	TotalEvals7d   int
+	FailedEvals7d  int
+	FailureRate7d  decimal.Decimal // 0~100
+	AvgLatencyMs7d int
+	TotalCostCents decimal.Decimal
+}
+
+// ScoreBucket is one bin of the score → realized-PnL distribution.
+type ScoreBucket struct {
+	Label   string
+	N       int             // # signals in this bucket
+	Trades  int             // matched closed trades
+	AvgPnL  decimal.Decimal // mean USDC PnL across matched trades
+	WinRate decimal.Decimal // 0~100
+}
+
+func (h *StatsHandler) queryAgentStats(ctx context.Context) (*AgentStats, error) {
+	out := &AgentStats{}
+
+	// 1. Score buckets vs realized PnL. Match on (strategy_id, symbol,
+	// opened_at) since position_history doesn't carry signal_id directly.
+	bucketSQL := `
+SELECT
+  CASE
+    WHEN s.agent_score < 20 THEN '0-20'
+    WHEN s.agent_score < 40 THEN '20-40'
+    WHEN s.agent_score < 60 THEN '40-60'
+    WHEN s.agent_score < 80 THEN '60-80'
+    ELSE '80-100'
+  END AS bucket,
+  COUNT(*) AS n_signals,
+  COUNT(ph.id) AS n_trades,
+  COALESCE(AVG(ph.pnl_usdc), 0)::float8 AS avg_pnl,
+  COALESCE(AVG(CASE WHEN ph.pnl_usdc > 0 THEN 1 ELSE 0 END), 0)::float8 AS win_rate
+FROM signals s
+LEFT JOIN virtual_positions vp ON vp.entry_signal_id = s.id
+LEFT JOIN position_history ph
+       ON ph.strategy_id = vp.strategy_id
+      AND ph.symbol = vp.symbol
+      AND ph.opened_at = vp.opened_at
+WHERE s.agent_score IS NOT NULL
+GROUP BY bucket
+ORDER BY bucket`
+	rows, err := h.pool.Query(ctx, bucketSQL)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	bucketMap := map[string]*ScoreBucket{}
+	for rows.Next() {
+		var b ScoreBucket
+		var avg, winRate float64
+		if err := rows.Scan(&b.Label, &b.N, &b.Trades, &avg, &winRate); err != nil {
+			return nil, err
+		}
+		b.AvgPnL = decimal.NewFromFloat(avg).Round(2)
+		b.WinRate = decimal.NewFromFloat(winRate * 100).Round(1)
+		bucketMap[b.Label] = &b
+	}
+	for _, label := range []string{"0-20", "20-40", "40-60", "60-80", "80-100"} {
+		if b, ok := bucketMap[label]; ok {
+			out.Buckets = append(out.Buckets, *b)
+		} else {
+			out.Buckets = append(out.Buckets, ScoreBucket{Label: label})
+		}
+	}
+
+	// 2. Last-7-day evaluation health (total / failed / avg latency / cost).
+	healthSQL := `
+SELECT
+  COUNT(*),
+  COUNT(*) FILTER (WHERE decision='failed'),
+  COALESCE(AVG(latency_ms), 0)::int,
+  COALESCE(SUM(cost_cents), 0)
+FROM agent_evaluations
+WHERE created_at >= NOW() - INTERVAL '7 days'`
+	if err := h.pool.QueryRow(ctx, healthSQL).Scan(
+		&out.TotalEvals7d, &out.FailedEvals7d, &out.AvgLatencyMs7d, &out.TotalCostCents,
+	); err != nil {
+		return nil, err
+	}
+	if out.TotalEvals7d > 0 {
+		out.FailureRate7d = decimal.NewFromInt(int64(out.FailedEvals7d)).
+			Div(decimal.NewFromInt(int64(out.TotalEvals7d))).
+			Mul(decimal.NewFromInt(100)).Round(2)
+	}
+
+	return out, nil
 }
 
 func (h *StatsHandler) fetchBinanceDaily(ctx context.Context, since, until time.Time) ([]IncomeRecord, error) {

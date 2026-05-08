@@ -144,4 +144,40 @@ if (stats.length > 0) {
     '<p class="text-center text-gray-400 py-6">暂无数据</p>';
 }
 </script>
+
+{{ if .AgentStats }}
+<div class="bg-white shadow rounded p-6 mt-6">
+  <h2 class="text-lg font-semibold mb-4">AI 评分统计</h2>
+
+  <h3 class="font-medium mb-2">分数分桶 vs 平均盈亏</h3>
+  <p class="text-xs text-gray-500 mb-3">同一分桶下的成交对应实际盈亏；分桶高的应在 PnL 与胜率上呈正相关，否则需要调 prompt。</p>
+  <table class="text-sm w-full mb-6">
+    <thead>
+      <tr class="text-left text-gray-500 border-b">
+        <th class="py-1">分桶</th><th>信号数</th><th>已平交易</th><th>平均 PnL ($)</th><th>胜率 %</th>
+      </tr>
+    </thead>
+    <tbody>
+    {{ range .AgentStats.Buckets }}
+      <tr class="border-b">
+        <td class="py-1 font-mono">{{ .Label }}</td>
+        <td>{{ .N }}</td>
+        <td>{{ .Trades }}</td>
+        <td class="{{ if .AvgPnL.IsNegative }}text-red-600{{ else if .AvgPnL.IsPositive }}text-green-700{{ end }}">{{ .AvgPnL }}</td>
+        <td>{{ .WinRate }}</td>
+      </tr>
+    {{ end }}
+    </tbody>
+  </table>
+
+  <h3 class="font-medium mb-2">最近 7 天 LLM 健康度</h3>
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+    <div><div class="text-gray-500">总评估</div><div class="font-mono text-lg">{{ .AgentStats.TotalEvals7d }}</div></div>
+    <div><div class="text-gray-500">失败次数</div><div class="font-mono text-lg {{ if gt .AgentStats.FailedEvals7d 0 }}text-red-600{{ end }}">{{ .AgentStats.FailedEvals7d }}</div></div>
+    <div><div class="text-gray-500">失败率</div><div class="font-mono text-lg">{{ .AgentStats.FailureRate7d }}%</div></div>
+    <div><div class="text-gray-500">平均延迟</div><div class="font-mono text-lg">{{ .AgentStats.AvgLatencyMs7d }} ms</div></div>
+    <div><div class="text-gray-500">累计成本(¢)</div><div class="font-mono text-lg">{{ .AgentStats.TotalCostCents }}</div></div>
+  </div>
+</div>
+{{ end }}
 {{ end }}
