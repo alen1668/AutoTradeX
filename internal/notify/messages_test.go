@@ -190,3 +190,27 @@ func TestMessages_BodyEndsWithTimestamp(t *testing.T) {
 		assert.True(t, strings.HasSuffix(m.Body, want), "body should end with %q, got: %q", want, m.Body)
 	}
 }
+
+func TestBuildAgentAbandonedMessage(t *testing.T) {
+	m := BuildAgentAbandonedMessage("supertrend-eth", "ETHUSDC", "long", 35, "近期连亏 3 笔,风险偏高")
+	assert.Equal(t, SeverityWarn, m.Severity)
+	assert.Contains(t, m.Title, "Agent 拒单")
+	assert.Contains(t, m.Body, "supertrend-eth")
+	assert.Contains(t, m.Body, "ETHUSDC")
+	assert.Contains(t, m.Body, "35")
+	assert.Contains(t, m.Body, "近期连亏")
+}
+
+func TestBuildAgentLLMUnhealthyMessage(t *testing.T) {
+	m := BuildAgentLLMUnhealthyMessage(7, 10)
+	assert.Equal(t, SeverityCritical, m.Severity)
+	assert.Contains(t, m.Title, "LLM")
+	assert.Contains(t, m.Body, "7/10")
+}
+
+func TestBuildAgentAPIKeyMissingMessage(t *testing.T) {
+	m := BuildAgentAPIKeyMissingMessage()
+	assert.Equal(t, SeverityCritical, m.Severity)
+	assert.Contains(t, m.Title, "API key")
+	assert.Contains(t, m.Body, "/settings")
+}

@@ -304,3 +304,51 @@ func BuildRecoveryAutoClosedNoExitPriceMessage(strategyID, symbol, side string,
 		Severity: SeverityCritical,
 	}
 }
+
+// BuildAgentAbandonedMessage — agent 真正拒单时的飞书 / Telegram 通知 (warn 级).
+// 仅在 score < threshold 且 dry_run=false 时发送; dry_run 期 agent 想拒
+// 但仍下单的情况不发通知 (噪声太大,该数据靠 /signals UI 复盘).
+func BuildAgentAbandonedMessage(strategyID, symbol, kind string, score int, reasoning string) Message {
+	body := fmt.Sprintf(
+		`策略：%s
+币种：%s
+方向：%s
+分数：%d (低于阈值)
+理由：%s`,
+		strategyID, symbol, kindLabel(kind), score, reasoning,
+	)
+	return Message{
+		Title:    "🤖 Agent 拒单",
+		Body:     withTimestamp(body),
+		Severity: SeverityWarn,
+	}
+}
+
+// BuildAgentLLMUnhealthyMessage — LLM 调用滚动失败率超阈值. 调用方需自行节流
+// (10 分钟最多 1 条).
+func BuildAgentLLMUnhealthyMessage(failures, total int) Message {
+	body := fmt.Sprintf(
+		`最近 10 分钟 LLM 调用失败 %d/%d 次。
+Agent 当前依 fail_mode 设置兜底 (open=放行, closed=拒单)。
+请检查 LLM API key、配额、网络。`,
+		failures, total,
+	)
+	return Message{
+		Title:    "⚠️ LLM 持续失败",
+		Body:     withTimestamp(body),
+		Severity: SeverityCritical,
+	}
+}
+
+// BuildAgentAPIKeyMissingMessage — agent 启用了但 LLM API key 配置异常.
+// 调用方需自行节流 (每天最多 1 条).
+func BuildAgentAPIKeyMissingMessage() Message {
+	body := `Agent 评分已启用,但 LLM API key 缺失或无效 (401)。
+请到 /settings 页 「AI 评分」 区块重新配置。
+Agent 当前按 fail_mode 兜底,不影响交易底线但等同未接 agent。`
+	return Message{
+		Title:    "🚨 LLM API key 配置异常",
+		Body:     withTimestamp(body),
+		Severity: SeverityCritical,
+	}
+}
