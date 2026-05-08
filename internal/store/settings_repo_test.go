@@ -138,3 +138,67 @@ func TestSettingsRepo_WebhookSecretRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, s2.WebhookSecret)
 }
+
+func TestSettingsRepo_AgentDefaults(t *testing.T) {
+	pool := testPool(t)
+	repo := NewSettingsRepo(pool)
+	s, err := repo.Get(context.Background(), pool)
+	require.NoError(t, err)
+	assert.False(t, s.AgentScorerEnabled)
+	assert.Equal(t, "claude-haiku-4-5-20251001", s.AgentScorerModel)
+	assert.Equal(t, 60, s.AgentScorerThreshold)
+	assert.Equal(t, 5000, s.AgentScorerTimeoutMs)
+	assert.Equal(t, 20, s.AgentScorerHistoryLimit)
+	assert.Equal(t, "open", s.AgentScorerFailMode)
+	assert.True(t, s.AgentScorerDryRun)
+	assert.Equal(t, "anthropic", s.LLMAPIProvider)
+	assert.Empty(t, s.LLMAPIKey)
+	assert.Empty(t, s.LLMAPIBaseURL)
+}
+
+func TestSettingsRepo_UpdateAgentScorer(t *testing.T) {
+	pool := testPool(t)
+	repo := NewSettingsRepo(pool)
+	ctx := context.Background()
+	err := repo.UpdateAgentScorer(ctx, pool,
+		true, "claude-haiku-4-5-20251001", 70, 6000, 30, "closed", false)
+	require.NoError(t, err)
+
+	s, err := repo.Get(ctx, pool)
+	require.NoError(t, err)
+	assert.True(t, s.AgentScorerEnabled)
+	assert.Equal(t, 70, s.AgentScorerThreshold)
+	assert.Equal(t, 6000, s.AgentScorerTimeoutMs)
+	assert.Equal(t, 30, s.AgentScorerHistoryLimit)
+	assert.Equal(t, "closed", s.AgentScorerFailMode)
+	assert.False(t, s.AgentScorerDryRun)
+}
+
+func TestSettingsRepo_SetAgentScorerEnabled(t *testing.T) {
+	pool := testPool(t)
+	repo := NewSettingsRepo(pool)
+	ctx := context.Background()
+	require.NoError(t, repo.SetAgentScorerEnabled(ctx, pool, true))
+	s, err := repo.Get(ctx, pool)
+	require.NoError(t, err)
+	assert.True(t, s.AgentScorerEnabled)
+
+	require.NoError(t, repo.SetAgentScorerEnabled(ctx, pool, false))
+	s2, _ := repo.Get(ctx, pool)
+	assert.False(t, s2.AgentScorerEnabled)
+}
+
+func TestSettingsRepo_UpdateLLMAPI_EmptyKeyPreservesExisting(t *testing.T) {
+	pool := testPool(t)
+	repo := NewSettingsRepo(pool)
+	ctx := context.Background()
+	require.NoError(t, repo.UpdateLLMAPI(ctx, pool, "anthropic", "sk-test-1", ""))
+	s1, _ := repo.Get(ctx, pool)
+	assert.Equal(t, "sk-test-1", s1.LLMAPIKey)
+
+	// Empty key on second update preserves existing key.
+	require.NoError(t, repo.UpdateLLMAPI(ctx, pool, "anthropic", "", "https://example.com"))
+	s2, _ := repo.Get(ctx, pool)
+	assert.Equal(t, "sk-test-1", s2.LLMAPIKey)
+	assert.Equal(t, "https://example.com", s2.LLMAPIBaseURL)
+}

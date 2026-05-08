@@ -24,6 +24,17 @@ type Settings struct {
 	ReconcilerIntervalSeconds int
 	BinanceRecvWindowMs       int
 	BinanceOrderTimeoutMs     int
+	// Agent scorer
+	AgentScorerEnabled      bool
+	AgentScorerModel        string
+	AgentScorerThreshold    int
+	AgentScorerTimeoutMs    int
+	AgentScorerHistoryLimit int
+	AgentScorerFailMode     string
+	AgentScorerDryRun       bool
+	LLMAPIProvider          string
+	LLMAPIKey               string
+	LLMAPIBaseURL           string
 }
 
 type SettingsRepo struct {
@@ -48,7 +59,11 @@ SELECT max_total_leverage, max_daily_loss_usdc,
        COALESCE(ip_whitelist, '{}'::TEXT[]),
        reconciler_interval_seconds,
        binance_recv_window_ms,
-       binance_order_timeout_ms
+       binance_order_timeout_ms,
+       agent_scorer_enabled, agent_scorer_model, agent_scorer_threshold,
+       agent_scorer_timeout_ms, agent_scorer_history_limit,
+       agent_scorer_fail_mode, agent_scorer_dry_run,
+       llm_api_provider, llm_api_key, llm_api_base_url
   FROM system_state WHERE id=1`,
 	).Scan(&maxLev, &maxLoss, &feishuURL, &s.FeishuEnabled, &tgToken, &tgChat, &s.TelegramEnabled,
 		&bnKey, &bnSecret,
@@ -56,7 +71,11 @@ SELECT max_total_leverage, max_daily_loss_usdc,
 		&s.IPWhitelist,
 		&reconcilerInterval,
 		&recvWindow,
-		&orderTimeout)
+		&orderTimeout,
+		&s.AgentScorerEnabled, &s.AgentScorerModel, &s.AgentScorerThreshold,
+		&s.AgentScorerTimeoutMs, &s.AgentScorerHistoryLimit,
+		&s.AgentScorerFailMode, &s.AgentScorerDryRun,
+		&s.LLMAPIProvider, &s.LLMAPIKey, &s.LLMAPIBaseURL)
 	if err != nil {
 		return nil, err
 	}
@@ -199,5 +218,51 @@ UPDATE system_state
        binance_api_secret=NULLIF($2,''),
        updated_at=now()
  WHERE id=1`, apiKey, apiSecret)
+	return err
+}
+
+// UpdateAgentScorer updates the full agent scorer parameter block. The
+// `enabled` flag is the *current* desired state; callers that just want to
+// toggle on/off should use SetAgentScorerEnabled instead so the /system
+// page's empty-key precheck stays the only path that flips it on.
+func (r *SettingsRepo) UpdateAgentScorer(ctx context.Context, q Querier,
+	enabled bool, model string, threshold, timeoutMs, historyLimit int,
+	failMode string, dryRun bool,
+) error {
+	_, err := q.Exec(ctx, `
+UPDATE system_state SET
+    agent_scorer_enabled       = $1,
+    agent_scorer_model         = $2,
+    agent_scorer_threshold     = $3,
+    agent_scorer_timeout_ms    = $4,
+    agent_scorer_history_limit = $5,
+    agent_scorer_fail_mode     = $6,
+    agent_scorer_dry_run       = $7,
+    updated_at=now()
+ WHERE id=1`,
+		enabled, model, threshold, timeoutMs, historyLimit, failMode, dryRun,
+	)
+	return err
+}
+
+// SetAgentScorerEnabled flips just the enabled flag. The /system page calls
+// this after the empty-key precheck.
+func (r *SettingsRepo) SetAgentScorerEnabled(ctx context.Context, q Querier, enabled bool) error {
+	_, err := q.Exec(ctx,
+		`UPDATE system_state SET agent_scorer_enabled=$1, updated_at=now() WHERE id=1`, enabled)
+	return err
+}
+
+// UpdateLLMAPI updates the LLM provider, API key, and base URL. Empty
+// api_key preserves the existing value (matches Binance API key UI behavior:
+// the form's password field can be left blank to keep the previous secret).
+func (r *SettingsRepo) UpdateLLMAPI(ctx context.Context, q Querier, provider, apiKey, baseURL string) error {
+	_, err := q.Exec(ctx, `
+UPDATE system_state SET
+    llm_api_provider = $1,
+    llm_api_key      = COALESCE(NULLIF($2,''), llm_api_key),
+    llm_api_base_url = $3,
+    updated_at=now()
+ WHERE id=1`, provider, apiKey, baseURL)
 	return err
 }
