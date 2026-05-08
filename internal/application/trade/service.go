@@ -43,6 +43,7 @@ type Service struct {
 	orderRepo   *store.OrderRepo
 	posRepo     *store.VirtualPositionRepo
 	historyRepo *store.PositionHistoryRepo
+	systemRepo  *store.SystemStateRepo // optional: when non-nil, ClosePosition rolls PnL into daily_pnl_usdc (powers UI + DailyLossBreaker)
 	trader      tradepkg.Trader
 	stepSizer   StepSizer
 }
@@ -58,6 +59,14 @@ func NewService(pool *pgxpool.Pool, orderRepo *store.OrderRepo, posRepo *store.V
 		svc.stepSizer = ss
 	}
 	return svc
+}
+
+// WithSystemRepo enables daily PnL accumulation. Without it, daily_pnl_usdc
+// stays at 0 — that breaks the daily-loss breaker rule. cmd/tvbot/main.go
+// always wires this.
+func (s *Service) WithSystemRepo(r *store.SystemStateRepo) *Service {
+	s.systemRepo = r
+	return s
 }
 
 // WithStepSizer overrides the StepSizer used to look up lot-size step for a symbol.
@@ -377,7 +386,7 @@ func (s *Service) ClosePosition(ctx context.Context, in CloseInput) (*CloseResul
 			}
 			pnlPct = delta.Div(in.EntryFillPrice).Mul(decimal.NewFromInt(100))
 		}
-		return s.historyRepo.Insert(ctx, tx, store.PositionHistoryRow{
+		if err := s.historyRepo.Insert(ctx, tx, store.PositionHistoryRow{
 			StrategyID:          in.StrategyID,
 			Symbol:              in.Symbol,
 			Side:                string(in.Side),
@@ -397,7 +406,19 @@ func (s *Service) ClosePosition(ctx context.Context, in CloseInput) (*CloseResul
 			DurationSeconds:     dur,
 			OpenedAt:            in.OpenedAt,
 			ClosedAt:            now,
-		})
+		}); err != nil {
+			return err
+		}
+
+		// 7) Accumulate into daily PnL (powers UI + DailyLossBreakerRule).
+		// systemRepo can be nil in unit tests that don't care; when nil
+		// we silently skip — pre-existing tests still pass.
+		if s.systemRepo != nil {
+			if err := s.systemRepo.AddDailyPnL(ctx, tx, pnl, now); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err

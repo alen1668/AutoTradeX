@@ -170,7 +170,7 @@ func main() {
 	var trader tradepkg.Trader = binanceinfra.New(binCfg, dbSettings.BinanceAPIKey, dbSettings.BinanceAPISecret, cfg.BotMode, logger)
 
 	// ── application services ─────────────────────────────────────────────────
-	tradeSvc := trade.NewService(pool, orderRepo, posRepo, historyRepo, trader)
+	tradeSvc := trade.NewService(pool, orderRepo, posRepo, historyRepo, trader).WithSystemRepo(systemRepo)
 
 	// For testnet/live: inject BinanceTrader as StepSizer.
 	if bt, ok := trader.(*binanceinfra.Trader); ok {

@@ -142,7 +142,7 @@ func newServiceWithAgent(t *testing.T, p *pgxpool.Pool, agent *AgentHook) *Servi
 		risk.TotalLeverageRule{Settings: risk.NewStaticSettings(decimal.NewFromInt(10), decimal.Zero)},
 		risk.DailyLossBreakerRule{Settings: risk.NewStaticSettings(decimal.Zero, decimal.NewFromInt(1000))},
 	)
-	tradeSvc := apptrade.NewService(p, orderRepo, posRepo, historyRepo, tradepkg.NewDryRunTrader())
+	tradeSvc := apptrade.NewService(p, orderRepo, posRepo, historyRepo, tradepkg.NewDryRunTrader()).WithSystemRepo(systemRepo)
 	return NewService(Config{
 		AccountEquityFallback: decimal.NewFromInt(10000),
 		SecretLoader: func(_ context.Context) (string, error) {
@@ -255,7 +255,7 @@ func newServiceWithFullDeps(t *testing.T, p *pgxpool.Pool, agent *AgentHook, n n
 		risk.TotalLeverageRule{Settings: risk.NewStaticSettings(decimal.NewFromInt(10), decimal.Zero)},
 		risk.DailyLossBreakerRule{Settings: risk.NewStaticSettings(decimal.Zero, decimal.NewFromInt(1000))},
 	)
-	tradeSvc := apptrade.NewService(p, orderRepo, posRepo, historyRepo, tradepkg.NewDryRunTrader())
+	tradeSvc := apptrade.NewService(p, orderRepo, posRepo, historyRepo, tradepkg.NewDryRunTrader()).WithSystemRepo(systemRepo)
 	return NewService(Config{
 		AccountEquityFallback: decimal.NewFromInt(10000),
 		SecretLoader:          func(_ context.Context) (string, error) { return "secret", nil },
@@ -431,4 +431,40 @@ func contains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+// TestIngest_ClosePositionAccumulatesDailyPnL verifies that closing a
+// position rolls realized PnL into system_state.daily_pnl_usdc — the bug
+// fixed alongside this test was that AddDailyPnL existed but was never
+// called, leaving the daily-loss breaker permanently inactive.
+func TestIngest_ClosePositionAccumulatesDailyPnL(t *testing.T) {
+	p := setupDB(t)
+	svc := newService(t, p)
+	ctx := context.Background()
+
+	// Open long at price=100
+	openBody := []byte(`{"strategy_id":"s","symbol":"ETHUSDC","signal":"Long","price":"100","timestamp":1714723504000,"secret":"secret"}`)
+	res, err := svc.Ingest(ctx, openBody, net.ParseIP("127.0.0.1"))
+	require.NoError(t, err)
+	require.Equal(t, "open_long", res.ActionTaken)
+
+	// daily_pnl still zero — only opening, no realized PnL yet.
+	var pnlBefore decimal.Decimal
+	require.NoError(t, p.QueryRow(ctx,
+		`SELECT daily_pnl_usdc FROM system_state WHERE id=1`).Scan(&pnlBefore))
+	assert.True(t, pnlBefore.IsZero(), "no realized PnL until close")
+
+	// Close at price=110 (long, qty=5 → PnL ≈ +50 ignoring fees in dry_run)
+	closeBody := []byte(`{"strategy_id":"s","symbol":"ETHUSDC","signal":"Exit Long","price":"110","timestamp":1714723600000,"secret":"secret"}`)
+	res, err = svc.Ingest(ctx, closeBody, net.ParseIP("127.0.0.1"))
+	require.NoError(t, err)
+	require.Equal(t, "accepted", res.Decision)
+
+	var pnlAfter decimal.Decimal
+	var pnlDate *time.Time
+	require.NoError(t, p.QueryRow(ctx,
+		`SELECT daily_pnl_usdc, daily_pnl_date FROM system_state WHERE id=1`).Scan(&pnlAfter, &pnlDate))
+	assert.True(t, pnlAfter.IsPositive(), "daily_pnl_usdc must accumulate after close (got %s)", pnlAfter)
+	require.NotNil(t, pnlDate, "daily_pnl_date must be set on first accumulation")
+	assert.Equal(t, time.Now().UTC().Format("2006-01-02"), pnlDate.UTC().Format("2006-01-02"))
 }
