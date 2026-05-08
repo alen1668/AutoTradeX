@@ -43,7 +43,7 @@ func (h *StatusHandler) Build(r *http.Request) (StatusData, error) {
 	if err != nil {
 		return StatusData{}, err
 	}
-	strategies, err := h.strategyRepo.List(r.Context(), h.pool)
+	strategies, err := h.strategyRepo.List(r.Context(), h.pool, false)
 	if err != nil {
 		return StatusData{}, err
 	}

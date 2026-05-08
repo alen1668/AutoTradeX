@@ -1,5 +1,5 @@
 {{ define "strategy_row" }}
-<tr id="strategy-{{ .ID }}" class="border-t">
+<tr id="strategy-{{ .ID }}" class="border-t {{ if .Archived }}bg-gray-50 text-gray-500{{ end }}">
   <td class="px-3 py-2 font-mono text-sm">{{ .ID }}</td>
   <td class="px-3 py-2">{{ .Symbol }}</td>
   <td class="px-3 py-2">{{ .Leverage }}x</td>
@@ -9,13 +9,23 @@
   <td class="px-3 py-2">{{ .MaxOpenUSDC }}</td>
   <td class="px-3 py-2">
     <button hx-post="/strategies/{{ .ID }}/toggle" hx-target="#strategy-{{ .ID }}" hx-swap="outerHTML"
-      class="px-2 py-1 rounded text-xs {{ if .Enabled }}bg-green-200 text-green-900{{ else }}bg-gray-200 text-gray-700{{ end }}">
+      class="px-2 py-1 rounded text-xs {{ if .Enabled }}bg-green-200 text-green-900{{ else }}bg-gray-200 text-gray-700{{ end }}"
+      {{ if .Archived }}disabled title="已归档,先取消归档再启用"{{ end }}>
       {{ if .Enabled }}启用{{ else }}已禁用{{ end }}
     </button>
   </td>
-  <td class="px-3 py-2 space-x-2">
+  <td class="px-3 py-2 space-x-2 whitespace-nowrap">
     <a href="/strategies/{{ .ID }}/edit" class="text-blue-600 text-sm">编辑</a>
-    <form method="POST" action="/strategies/{{ .ID }}/delete" class="inline" onsubmit="return confirm('确认删除？')">
+    {{ if .Archived }}
+    <form method="POST" action="/strategies/{{ .ID }}/unarchive" class="inline">
+      <button class="text-amber-600 text-sm">取消归档</button>
+    </form>
+    {{ else }}
+    <form method="POST" action="/strategies/{{ .ID }}/archive" class="inline" onsubmit="return confirm('归档后该策略不再接收信号，从主列表隐藏。可随时取消归档。')">
+      <button class="text-gray-600 text-sm">归档</button>
+    </form>
+    {{ end }}
+    <form method="POST" action="/strategies/{{ .ID }}/delete" class="inline" onsubmit="return confirm('确认删除？(注意:有历史 VP 的策略不能删,只能归档)')">
       <button class="text-red-600 text-sm">删除</button>
     </form>
   </td>

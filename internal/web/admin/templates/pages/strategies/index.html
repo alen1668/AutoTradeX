@@ -3,16 +3,26 @@
   <h1 class="text-2xl font-bold">策略管理</h1>
   <a href="/strategies/new" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">新增</a>
 </div>
+
+<div class="flex space-x-1 border-b mb-3 text-sm">
+  <a href="/strategies" class="px-4 py-2 -mb-px border-b-2 {{ if not .IsArchived }}border-blue-600 text-blue-700 font-semibold{{ else }}border-transparent text-gray-500 hover:text-gray-800{{ end }}">
+    在线 <span class="text-xs text-gray-500">({{ .ActiveCount }})</span>
+  </a>
+  <a href="/strategies?view=archived" class="px-4 py-2 -mb-px border-b-2 {{ if .IsArchived }}border-blue-600 text-blue-700 font-semibold{{ else }}border-transparent text-gray-500 hover:text-gray-800{{ end }}">
+    已归档 <span class="text-xs text-gray-500">({{ .ArchivedCount }})</span>
+  </a>
+</div>
+
 <table class="w-full bg-white shadow rounded">
   <thead class="bg-gray-100 text-left text-sm">
     <tr>
       <th class="px-3 py-2">ID</th>
       <th class="px-3 py-2">币种</th>
       <th class="px-3 py-2">杠杆</th>
-      <th class="px-3 py-2">名义(USDC)</th>
+      <th class="px-3 py-2">本金($)</th>
       <th class="px-3 py-2">止损%</th>
       <th class="px-3 py-2">止盈%</th>
-      <th class="px-3 py-2">上限(USDC)</th>
+      <th class="px-3 py-2">持仓上限($)</th>
       <th class="px-3 py-2">启用</th>
       <th class="px-3 py-2">操作</th>
     </tr>
@@ -21,7 +31,9 @@
     {{ range .Strategies }}
       {{ template "strategy_row" . }}
     {{ else }}
-      <tr><td colspan="9" class="px-3 py-4 text-center text-gray-500">暂无策略</td></tr>
+      <tr><td colspan="9" class="px-3 py-4 text-center text-gray-500">
+        {{ if $.IsArchived }}没有归档的策略{{ else }}暂无策略{{ end }}
+      </td></tr>
     {{ end }}
   </tbody>
 </table>

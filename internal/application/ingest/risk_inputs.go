@@ -18,11 +18,12 @@ import (
 
 // LoadCtx is everything we read from DB to populate a risk.Input.
 type LoadCtx struct {
-	Strategy        *strategy.Strategy
-	CurrentPosition *position.VirtualPosition
-	OpenNotionalSum decimal.Decimal
-	DailyPnLUSDC    decimal.Decimal
-	BreakerTripped  bool
+	Strategy         *strategy.Strategy
+	StrategyArchived bool // true → ingest must reject before reaching risk pipeline
+	CurrentPosition  *position.VirtualPosition
+	OpenNotionalSum  decimal.Decimal
+	DailyPnLUSDC     decimal.Decimal
+	BreakerTripped   bool
 }
 
 func loadAll(ctx context.Context, q store.Querier, pool *pgxpool.Pool,
@@ -71,7 +72,8 @@ func loadAll(ctx context.Context, q store.Querier, pool *pgxpool.Pool,
 	}
 
 	return &LoadCtx{
-		Strategy: strat, CurrentPosition: pos,
+		Strategy: strat, StrategyArchived: stratRow.Archived,
+		CurrentPosition: pos,
 		OpenNotionalSum: openNotional,
 		DailyPnLUSDC:    state.DailyPnLUSDC,
 		BreakerTripped:  state.BreakerTripped,

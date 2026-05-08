@@ -17,6 +17,7 @@ type StrategyRow struct {
 	TakeProfitPct decimal.Decimal // zero = none
 	MaxOpenUSDC   decimal.Decimal
 	Enabled       bool
+	Archived      bool
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
@@ -53,10 +54,10 @@ func (r *StrategyRepo) Get(ctx context.Context, q Querier, id string) (*Strategy
 	var tp *decimal.Decimal
 	err := q.QueryRow(ctx, `
 SELECT id, symbol, leverage, size_usdc, stop_loss_pct, take_profit_pct,
-       max_open_usdc, enabled, created_at, updated_at
+       max_open_usdc, enabled, archived, created_at, updated_at
   FROM strategies WHERE id=$1`, id,
 	).Scan(&s.ID, &s.Symbol, &s.Leverage, &s.SizeUSDC, &s.StopLossPct, &tp,
-		&s.MaxOpenUSDC, &s.Enabled, &s.CreatedAt, &s.UpdatedAt)
+		&s.MaxOpenUSDC, &s.Enabled, &s.Archived, &s.CreatedAt, &s.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -66,11 +67,14 @@ SELECT id, symbol, leverage, size_usdc, stop_loss_pct, take_profit_pct,
 	return &s, nil
 }
 
-func (r *StrategyRepo) List(ctx context.Context, q Querier) ([]*StrategyRow, error) {
+// List returns strategies. archived selects which side: false = active list,
+// true = archived list. Bot internal callers (e.g. ingest) typically want
+// archived=false to ignore archived strategies.
+func (r *StrategyRepo) List(ctx context.Context, q Querier, archived bool) ([]*StrategyRow, error) {
 	rows, err := q.Query(ctx, `
 SELECT id, symbol, leverage, size_usdc, stop_loss_pct, take_profit_pct,
-       max_open_usdc, enabled, created_at, updated_at
-  FROM strategies ORDER BY id`)
+       max_open_usdc, enabled, archived, created_at, updated_at
+  FROM strategies WHERE archived=$1 ORDER BY id`, archived)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +84,7 @@ SELECT id, symbol, leverage, size_usdc, stop_loss_pct, take_profit_pct,
 		var s StrategyRow
 		var tp *decimal.Decimal
 		if err := rows.Scan(&s.ID, &s.Symbol, &s.Leverage, &s.SizeUSDC, &s.StopLossPct, &tp,
-			&s.MaxOpenUSDC, &s.Enabled, &s.CreatedAt, &s.UpdatedAt); err != nil {
+			&s.MaxOpenUSDC, &s.Enabled, &s.Archived, &s.CreatedAt, &s.UpdatedAt); err != nil {
 			return nil, err
 		}
 		if tp != nil {
@@ -89,6 +93,13 @@ SELECT id, symbol, leverage, size_usdc, stop_loss_pct, take_profit_pct,
 		out = append(out, &s)
 	}
 	return out, rows.Err()
+}
+
+// SetArchived flips the archive flag for a strategy.
+func (r *StrategyRepo) SetArchived(ctx context.Context, q Querier, id string, archived bool) error {
+	_, err := q.Exec(ctx,
+		`UPDATE strategies SET archived=$2, updated_at=now() WHERE id=$1`, id, archived)
+	return err
 }
 
 func (r *StrategyRepo) Delete(ctx context.Context, q Querier, id string) error {

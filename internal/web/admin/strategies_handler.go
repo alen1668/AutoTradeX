@@ -23,15 +23,33 @@ func NewStrategiesHandler(r *Renderer, repo *store.StrategyRepo, pool *pgxpool.P
 }
 
 func (h *StrategiesHandler) Index(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.repo.List(r.Context(), h.pool)
+	view := r.URL.Query().Get("view") // "" (default = active) | "archived"
+	archived := view == "archived"
+	rows, err := h.repo.List(r.Context(), h.pool, archived)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Counts for both tabs so the badges render correctly even on the archived view.
+	activeCount, _ := h.countByArchived(r, false)
+	archivedCount, _ := h.countByArchived(r, true)
 	data := h.statusHandler.WithStatus(r, map[string]any{
-		"Strategies": rows,
+		"Strategies":    rows,
+		"View":          view, // "" or "archived"
+		"IsArchived":    archived,
+		"ActiveCount":   activeCount,
+		"ArchivedCount": archivedCount,
 	})
 	h.render.Render(w, http.StatusOK, "strategies/index", data)
+}
+
+// countByArchived runs a fast COUNT(*) for tab badges; ignores errors and
+// returns 0 since this is decorative.
+func (h *StrategiesHandler) countByArchived(r *http.Request, archived bool) (int, error) {
+	var n int
+	err := h.pool.QueryRow(r.Context(),
+		`SELECT COUNT(*) FROM strategies WHERE archived=$1`, archived).Scan(&n)
+	return n, err
 }
 
 func (h *StrategiesHandler) New(w http.ResponseWriter, r *http.Request) {
@@ -107,6 +125,43 @@ func (h *StrategiesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/strategies", http.StatusSeeOther)
+}
+
+// Archive / Unarchive flips the `archived` flag. We block archiving if the
+// strategy currently has any active virtual position — operator should close
+// the position first.
+func (h *StrategiesHandler) Archive(w http.ResponseWriter, r *http.Request) {
+	h.setArchived(w, r, true)
+}
+
+func (h *StrategiesHandler) Unarchive(w http.ResponseWriter, r *http.Request) {
+	h.setArchived(w, r, false)
+}
+
+func (h *StrategiesHandler) setArchived(w http.ResponseWriter, r *http.Request, archived bool) {
+	id := chi.URLParam(r, "id")
+	if archived {
+		var active int
+		_ = h.pool.QueryRow(r.Context(),
+			`SELECT COUNT(*) FROM virtual_positions
+			  WHERE strategy_id=$1 AND status IN ('opening','open','closing')`, id,
+		).Scan(&active)
+		if active > 0 {
+			http.Error(w, "策略仍有活跃持仓，请先平仓再归档", http.StatusBadRequest)
+			return
+		}
+	}
+	if err := h.repo.SetArchived(r.Context(), h.pool, id, archived); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Redirect to the tab where the strategy now lives, so the user can see
+	// it landed there.
+	dest := "/strategies"
+	if archived {
+		dest = "/strategies?view=archived"
+	}
+	http.Redirect(w, r, dest, http.StatusSeeOther)
 }
 
 func parseStrategyForm(r *http.Request) (*store.StrategyRow, error) {

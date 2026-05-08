@@ -18,8 +18,9 @@
       <input type="number" name="leverage" value="{{ .Strategy.Leverage }}" min="1" max="125" required class="mt-1 w-full rounded border-gray-300 px-3 py-2">
     </div>
     <div>
-      <label class="block text-sm font-medium">名义价值 (USDC)</label>
+      <label class="block text-sm font-medium">本金 ($)</label>
       <input type="text" name="size_usdc" value="{{ .Strategy.SizeUSDC }}" required class="mt-1 w-full rounded border-gray-300 px-3 py-2">
+      <p class="mt-1 text-xs text-gray-500">单次开仓投入的本金/保证金。实际持仓金额 = 本金 × 杠杆。</p>
     </div>
     <div>
       <label class="block text-sm font-medium">止损 %</label>
@@ -30,8 +31,9 @@
       <input type="text" name="take_profit_pct" value="{{ if .Strategy.TakeProfitPct.IsPositive }}{{ .Strategy.TakeProfitPct }}{{ end }}" class="mt-1 w-full rounded border-gray-300 px-3 py-2">
     </div>
     <div>
-      <label class="block text-sm font-medium">单策略未平仓上限 (USDC)</label>
+      <label class="block text-sm font-medium">持仓上限 ($)</label>
       <input type="text" name="max_open_usdc" value="{{ .Strategy.MaxOpenUSDC }}" required class="mt-1 w-full rounded border-gray-300 px-3 py-2">
+      <p class="mt-1 text-xs text-gray-500">该策略持仓金额(= 本金 × 杠杆)的上限。超过此值会被风控拒绝。</p>
     </div>
     <div class="flex items-end">
       <label class="inline-flex items-center">
