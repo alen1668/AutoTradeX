@@ -42,7 +42,7 @@ func (f *fakeTrader) GetPositionRisk(_ context.Context, _ string) (*trade.Positi
 
 func TestReconciler_Constructor(t *testing.T) {
 	// Covers compile + happy path with no orders
-	r := New(nil, nil, nil, &fakeTrader{}, notify.NoOp{}, zerolog.Nop(), 50*time.Millisecond)
+	r := New(nil, nil, nil, nil, &fakeTrader{}, notify.NoOp{}, zerolog.Nop(), 50*time.Millisecond)
 	require.NotNil(t, r)
 }
 

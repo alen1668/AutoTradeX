@@ -3,6 +3,7 @@ package reconcile
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
@@ -17,25 +18,30 @@ import (
 // the exchange's view of open positions. It must complete before the HTTP
 // server starts accepting traffic.
 type Recovery struct {
-	pool       *pgxpool.Pool
-	posRepo    *store.VirtualPositionRepo
-	systemRepo *store.SystemStateRepo
-	trader     trade.Trader
-	notifier   notify.Notifier
-	log        zerolog.Logger
+	pool        *pgxpool.Pool
+	posRepo     *store.VirtualPositionRepo
+	orderRepo   *store.OrderRepo
+	historyRepo *store.PositionHistoryRepo
+	systemRepo  *store.SystemStateRepo
+	trader      trade.Trader
+	notifier    notify.Notifier
+	log         zerolog.Logger
 }
 
 // NewRecovery creates a Recovery instance.
 func NewRecovery(pool *pgxpool.Pool, posRepo *store.VirtualPositionRepo,
-	systemRepo *store.SystemStateRepo, trader trade.Trader,
-	notifier notify.Notifier, log zerolog.Logger) *Recovery {
+	orderRepo *store.OrderRepo, historyRepo *store.PositionHistoryRepo,
+	systemRepo *store.SystemStateRepo,
+	trader trade.Trader, notifier notify.Notifier, log zerolog.Logger) *Recovery {
 	return &Recovery{
-		pool:       pool,
-		posRepo:    posRepo,
-		systemRepo: systemRepo,
-		trader:     trader,
-		notifier:   notifier,
-		log:        log,
+		pool:        pool,
+		posRepo:     posRepo,
+		orderRepo:   orderRepo,
+		historyRepo: historyRepo,
+		systemRepo:  systemRepo,
+		trader:      trader,
+		notifier:    notifier,
+		log:         log,
 	}
 }
 
@@ -73,15 +79,20 @@ SELECT id FROM virtual_positions
 	for _, id := range ids {
 		if err := r.reconcileOne(ctx, id); err != nil {
 			r.log.Error().Err(err).Int64("vp_id", id).Msg("recovery: position reconcile failed")
-			_ = r.notifier.Send(ctx, notify.Message{
-				Title:    "Startup recovery anomaly",
-				Body:     fmt.Sprintf("vp_id=%d err=%s", id, err.Error()),
-				Severity: notify.SeverityCritical,
-			})
+			_ = r.notifier.Send(ctx, notify.BuildRecoveryAnomalyMessage(id, err.Error()))
 		}
 	}
 	r.log.Info().Msg("startup recovery: done — system disarmed")
 	return nil
+}
+
+// closeData is what we need to record an offline close into position_history.
+type closeData struct {
+	ExitPrice   decimal.Decimal
+	ExitQty     decimal.Decimal
+	Fees        decimal.Decimal
+	ClosedAt    time.Time // when the close actually happened on the exchange
+	CloseReason string    // notify.CloseReasonStopLoss / TakeProfit / RecoveryOffline
 }
 
 func (r *Recovery) reconcileOne(ctx context.Context, vpID int64) error {
@@ -100,34 +111,173 @@ func (r *Recovery) reconcileOne(ctx context.Context, vpID int64) error {
 
 	switch {
 	case realQty.IsZero():
-		// No real position — DB says active. Likely stop fired offline.
-		// Mark closed; PnL calc will be approximate (we don't have exit price).
 		r.log.Warn().Int64("vp_id", vpID).Msg("recovery: real position empty; marking closed")
+		// Try to derive close data from the protective orders first; fall
+		// back to Income API for manual closes.
+		cd := r.deriveCloseData(ctx, vp)
 		if err := r.posRepo.MarkClosed(ctx, r.pool, vpID); err != nil {
 			return err
 		}
-		_ = r.notifier.Send(ctx, notify.Message{
-			Title: "Position auto-closed during recovery",
-			Body: fmt.Sprintf(
-				"vp_id=%d %s — exchange position empty, likely stop fired offline. Review history.",
-				vpID, vp.Symbol),
-			Severity: notify.SeverityCritical,
-		})
+		if cd != nil {
+			if err := r.recordHistory(ctx, vp, *cd); err != nil {
+				r.log.Warn().Err(err).Int64("vp_id", vpID).Msg("recovery: write history failed")
+			}
+			pnl := notify.ComputePnL(vp.Side, vp.EntryFillPrice, cd.ExitPrice, cd.ExitQty)
+			_ = r.notifier.Send(ctx, notify.BuildCloseMessage(
+				vp.StrategyID, vp.Symbol, vp.Side, cd.CloseReason,
+				vp.EntryFillPrice, cd.ExitPrice, cd.ExitQty, pnl))
+		} else {
+			_ = r.notifier.Send(ctx, notify.BuildRecoveryAutoClosedNoExitPriceMessage(
+				vp.StrategyID, vp.Symbol, vp.Side, vp.ID, vp.EntryFillPrice, vp.Qty))
+		}
 	case matched:
 		r.log.Info().Int64("vp_id", vpID).Msg("recovery: position matches reality")
-		// Could check for missing protective orders here; leaving as future enhancement.
 	default:
-		// Mismatch — cannot reconcile automatically. Flag for manual review.
-		_ = r.notifier.Send(ctx, notify.Message{
-			Title: "Position mismatch — manual review required",
-			Body: fmt.Sprintf(
-				"vp_id=%d %s db_qty=%s db_side=%s real_qty=%s — system disarmed",
-				vpID, vp.Symbol, dbQty.String(), vp.Side, pos.Qty.String()),
-			Severity: notify.SeverityCritical,
-		})
-		return fmt.Errorf("qty mismatch: db=%s real=%s", dbQty, pos.Qty)
+		_ = r.notifier.Send(ctx, notify.BuildRecoveryMismatchMessage(
+			vp.StrategyID, vp.Symbol, vp.Side, vp.ID, dbQty, pos.Qty.Abs()))
+		r.log.Warn().Int64("vp_id", vpID).
+			Str("db_qty", dbQty.String()).Str("real_qty", pos.Qty.String()).
+			Msg("recovery: qty mismatch — manual review required")
 	}
 	return nil
+}
+
+// deriveCloseData figures out exit price/qty/fees for a VP that's been closed
+// offline. Tries protective-order GetOrder first (fast, exact), then falls
+// back to Income API (catches manual closes). Returns nil if neither works.
+func (r *Recovery) deriveCloseData(ctx context.Context, vp *store.VirtualPositionRow) *closeData {
+	// 1) Protective fill lookup
+	if exitPrice, exitQty, fees, purpose, ok := r.findOfflineExitFill(ctx, vp); ok {
+		reason := notify.CloseReasonStopLoss
+		if purpose == "take_profit" {
+			reason = notify.CloseReasonTakeProfit
+		}
+		return &closeData{
+			ExitPrice: exitPrice, ExitQty: exitQty, Fees: fees,
+			ClosedAt:    time.Now().UTC(), // protective fill timestamp not preserved by GetOrder; use now as approximation
+			CloseReason: reason,
+		}
+	}
+	// 2) Income API fallback (works for manual closes too).
+	fetcher, ok := r.trader.(trade.IncomeFetcher)
+	if !ok {
+		return nil
+	}
+	since := vp.OpenedAt.Add(2 * time.Second) // skip entry commission tick
+	until := time.Now().UTC().Add(60 * time.Second)
+	records, err := fetcher.Income(ctx, since, until)
+	if err != nil {
+		r.log.Warn().Err(err).Int64("vp_id", vp.ID).Msg("recovery: income api failed")
+		return nil
+	}
+	var pnlSum, commSum decimal.Decimal
+	var actualClose time.Time
+	for _, rec := range records {
+		if rec.Symbol != vp.Symbol {
+			continue
+		}
+		switch rec.Type {
+		case "REALIZED_PNL":
+			pnlSum = pnlSum.Add(rec.Income)
+			if rec.Time.After(actualClose) {
+				actualClose = rec.Time
+			}
+		case "COMMISSION":
+			commSum = commSum.Add(rec.Income.Abs())
+			if rec.Time.After(actualClose) {
+				actualClose = rec.Time
+			}
+		}
+	}
+	if pnlSum.IsZero() || actualClose.IsZero() {
+		return nil
+	}
+	// Back-compute exit price from realized PnL.
+	var exitPrice decimal.Decimal
+	if vp.Side == "long" {
+		exitPrice = vp.EntryFillPrice.Add(pnlSum.Div(vp.Qty))
+	} else {
+		exitPrice = vp.EntryFillPrice.Sub(pnlSum.Div(vp.Qty))
+	}
+	return &closeData{
+		ExitPrice: exitPrice, ExitQty: vp.Qty, Fees: commSum,
+		ClosedAt:    actualClose,
+		CloseReason: notify.CloseReasonRecoveryOffline,
+	}
+}
+
+// recordHistory inserts a position_history row matching the close data.
+func (r *Recovery) recordHistory(ctx context.Context, vp *store.VirtualPositionRow, cd closeData) error {
+	if r.historyRepo == nil {
+		return nil
+	}
+	pnl := notify.ComputePnL(vp.Side, vp.EntryFillPrice, cd.ExitPrice, cd.ExitQty)
+	pnlPct := decimal.Zero
+	if !vp.EntryFillPrice.IsZero() && !cd.ExitQty.IsZero() {
+		pnlPct = pnl.Div(vp.EntryFillPrice.Mul(cd.ExitQty)).Mul(decimal.NewFromInt(100))
+	}
+	closedAt := cd.ClosedAt
+	if closedAt.IsZero() {
+		closedAt = time.Now().UTC()
+	}
+	duration := int(closedAt.Sub(vp.OpenedAt).Seconds())
+	return r.historyRepo.Insert(ctx, r.pool, store.PositionHistoryRow{
+		StrategyID: vp.StrategyID, Symbol: vp.Symbol, Side: vp.Side, Qty: cd.ExitQty,
+		EntrySignalPrice: vp.EntrySignalPrice, EntryFillPrice: vp.EntryFillPrice,
+		ExitSignalPrice:  cd.ExitPrice, ExitFillPrice: cd.ExitPrice,
+		PnLUSDC:          pnl, PnLPct: pnlPct, FeesUSDC: cd.Fees,
+		CloseReason:      mapNotifyReasonToHistory(cd.CloseReason),
+		DurationSeconds:  duration,
+		OpenedAt:         vp.OpenedAt, ClosedAt: closedAt,
+	})
+}
+
+// mapNotifyReasonToHistory translates notify.CloseReason* constants to the
+// string convention used by position_history.close_reason.
+func mapNotifyReasonToHistory(reason string) string {
+	// notify constants happen to use the same strings as history values.
+	return reason
+}
+
+// findOfflineExitFill iterates the protective orders attached to a VP and
+// returns details of the first one the exchange reports as filled. Also
+// syncs the order row in DB so the reconciler doesn't re-poll a stale row.
+func (r *Recovery) findOfflineExitFill(ctx context.Context, vp *store.VirtualPositionRow) (decimal.Decimal, decimal.Decimal, decimal.Decimal, string, bool) {
+	if r.orderRepo == nil {
+		return decimal.Zero, decimal.Zero, decimal.Zero, "", false
+	}
+	type cand struct {
+		ID      int64
+		Purpose string
+	}
+	candidates := []cand{
+		{vp.StopOrderID, "stop"},
+		{vp.BackupStopOrderID, "backup_stop"},
+		{vp.TakeProfitOrderID, "take_profit"},
+	}
+	for _, c := range candidates {
+		if c.ID == 0 {
+			continue
+		}
+		clientID, err := r.orderRepo.GetClientOrderIDByID(ctx, r.pool, c.ID)
+		if err != nil {
+			r.log.Warn().Err(err).Int64("order_id", c.ID).Msg("recovery: get client order id failed")
+			continue
+		}
+		res, err := r.trader.GetOrder(ctx, vp.Symbol, clientID)
+		if err != nil {
+			r.log.Warn().Err(err).Str("client_order_id", clientID).Msg("recovery: GetOrder failed")
+			continue
+		}
+		if string(res.Status) == "filled" {
+			if err := r.orderRepo.UpdateOnFill(ctx, r.pool, c.ID, res.ExchangeOrderID,
+				res.FilledQty, res.AvgFillPrice, res.FeesUSDC); err != nil {
+				r.log.Warn().Err(err).Int64("order_id", c.ID).Msg("recovery: sync filled order failed")
+			}
+			return res.AvgFillPrice, res.FilledQty, res.FeesUSDC, c.Purpose, true
+		}
+	}
+	return decimal.Zero, decimal.Zero, decimal.Zero, "", false
 }
 
 func positionSidesMatch(dbSide string, realQty decimal.Decimal) bool {

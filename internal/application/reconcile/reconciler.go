@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
+	"github.com/shopspring/decimal"
 
 	"github.com/lizhaojie/tvbot/internal/notify"
 	"github.com/lizhaojie/tvbot/internal/store"
@@ -16,26 +17,29 @@ import (
 // Reconciler is a background loop that polls open orders and syncs their
 // status from the exchange, alerting when protective orders fire.
 type Reconciler struct {
-	pool      *pgxpool.Pool
-	orderRepo *store.OrderRepo
-	posRepo   *store.VirtualPositionRepo
-	trader    trade.Trader
-	notifier  notify.Notifier
-	log       zerolog.Logger
-	interval  time.Duration
+	pool        *pgxpool.Pool
+	orderRepo   *store.OrderRepo
+	posRepo     *store.VirtualPositionRepo
+	historyRepo *store.PositionHistoryRepo
+	trader      trade.Trader
+	notifier    notify.Notifier
+	log         zerolog.Logger
+	interval    time.Duration
 }
 
 // New creates a Reconciler. interval controls how often the exchange is polled.
 func New(pool *pgxpool.Pool, orderRepo *store.OrderRepo, posRepo *store.VirtualPositionRepo,
-	trader trade.Trader, notifier notify.Notifier, log zerolog.Logger, interval time.Duration) *Reconciler {
+	historyRepo *store.PositionHistoryRepo, trader trade.Trader,
+	notifier notify.Notifier, log zerolog.Logger, interval time.Duration) *Reconciler {
 	return &Reconciler{
-		pool:      pool,
-		orderRepo: orderRepo,
-		posRepo:   posRepo,
-		trader:    trader,
-		notifier:  notifier,
-		log:       log,
-		interval:  interval,
+		pool:        pool,
+		orderRepo:   orderRepo,
+		posRepo:     posRepo,
+		historyRepo: historyRepo,
+		trader:      trader,
+		notifier:    notifier,
+		log:         log,
+		interval:    interval,
 	}
 }
 
@@ -84,16 +88,36 @@ func (r *Reconciler) reconcileOne(ctx context.Context, o *store.OrderRow) error 
 			res.FilledQty, res.AvgFillPrice, res.FeesUSDC); err != nil {
 			return err
 		}
-		// If this is a protective stop/take_profit firing, alert and let
-		// startup-recovery / next-trade-flow detect closed position via
-		// GetPositionRisk later. We don't auto-close VP here to avoid race
-		// with manual close in flight.
-		if isProtective(o.Purpose) {
-			_ = r.notifier.Send(ctx, notify.Message{
-				Title:    "Protective order filled",
-				Body:     fmt.Sprintf("%s %s @ %s — virtual position %d", o.Purpose, o.Symbol, res.AvgFillPrice, o.VirtualPositionID),
-				Severity: notify.SeverityCritical,
-			})
+		// If a protective stop/take_profit fired, close the VP, write
+		// position_history, and alert with full PnL info — all atomically
+		// from the user's perspective. (We use SELECT ... WHERE status<>'closed'
+		// to be idempotent if recovery or another tick already closed it.)
+		if isProtective(o.Purpose) && o.VirtualPositionID > 0 {
+			vp, err := r.posRepo.GetByID(ctx, r.pool, o.VirtualPositionID)
+			if err != nil {
+				r.log.Warn().Err(err).Int64("vp_id", o.VirtualPositionID).
+					Msg("reconcile: load VP for protective-filled close failed")
+				return nil
+			}
+			if vp.Status == "closed" {
+				return nil // already handled
+			}
+			pnl := notify.ComputePnL(vp.Side, vp.EntryFillPrice, res.AvgFillPrice, res.FilledQty)
+			reason := notify.CloseReasonStopLoss
+			if o.Purpose == "take_profit" {
+				reason = notify.CloseReasonTakeProfit
+			}
+			if err := r.posRepo.MarkClosed(ctx, r.pool, vp.ID); err != nil {
+				r.log.Warn().Err(err).Int64("vp_id", vp.ID).Msg("reconcile: mark VP closed failed")
+			}
+			if r.historyRepo != nil {
+				if err := r.writeHistory(ctx, vp, res.AvgFillPrice, res.FilledQty, res.FeesUSDC, reason); err != nil {
+					r.log.Warn().Err(err).Int64("vp_id", vp.ID).Msg("reconcile: write history failed")
+				}
+			}
+			_ = r.notifier.Send(ctx, notify.BuildCloseMessage(
+				vp.StrategyID, vp.Symbol, vp.Side, reason,
+				vp.EntryFillPrice, res.AvgFillPrice, res.FilledQty, pnl))
 		}
 	case "canceled", "rejected", "expired":
 		if err := r.orderRepo.UpdateStatus(ctx, r.pool, o.ID, string(res.Status)); err != nil {
@@ -103,11 +127,8 @@ func (r *Reconciler) reconcileOne(ctx context.Context, o *store.OrderRow) error 
 		if isProtective(o.Purpose) && o.VirtualPositionID > 0 {
 			vp, err := r.posRepo.GetByID(ctx, r.pool, o.VirtualPositionID)
 			if err == nil && vp.Status != "closed" {
-				_ = r.notifier.Send(ctx, notify.Message{
-					Title:    "Protective order canceled",
-					Body:     fmt.Sprintf("%s on %s canceled while position %d is %s — manual review", o.Purpose, o.Symbol, vp.ID, vp.Status),
-					Severity: notify.SeverityCritical,
-				})
+				_ = r.notifier.Send(ctx, notify.BuildProtectiveCanceledMessage(
+					vp.StrategyID, vp.Symbol, o.Purpose, vp.ID, vp.Status))
 			}
 		}
 	default:
@@ -117,6 +138,27 @@ func (r *Reconciler) reconcileOne(ctx context.Context, o *store.OrderRow) error 
 		}
 	}
 	return nil
+}
+
+// writeHistory inserts a position_history row when reconciler has just
+// observed a protective close.
+func (r *Reconciler) writeHistory(ctx context.Context, vp *store.VirtualPositionRow,
+	exitPrice, exitQty, fees decimal.Decimal, reason string) error {
+	pnl := notify.ComputePnL(vp.Side, vp.EntryFillPrice, exitPrice, exitQty)
+	pnlPct := decimal.Zero
+	if !vp.EntryFillPrice.IsZero() && !exitQty.IsZero() {
+		pnlPct = pnl.Div(vp.EntryFillPrice.Mul(exitQty)).Mul(decimal.NewFromInt(100))
+	}
+	now := time.Now().UTC()
+	return r.historyRepo.Insert(ctx, r.pool, store.PositionHistoryRow{
+		StrategyID: vp.StrategyID, Symbol: vp.Symbol, Side: vp.Side, Qty: exitQty,
+		EntrySignalPrice: vp.EntrySignalPrice, EntryFillPrice: vp.EntryFillPrice,
+		ExitSignalPrice:  exitPrice, ExitFillPrice: exitPrice,
+		PnLUSDC:          pnl, PnLPct: pnlPct, FeesUSDC: fees,
+		CloseReason:      reason,
+		DurationSeconds:  int(now.Sub(vp.OpenedAt).Seconds()),
+		OpenedAt:         vp.OpenedAt, ClosedAt: now,
+	})
 }
 
 func isProtective(purpose string) bool {
