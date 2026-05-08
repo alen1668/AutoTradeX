@@ -2,12 +2,15 @@ package admin
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lizhaojie/tvbot/internal/store"
 )
+
+const historyPageSize = 20
 
 type PositionsHandler struct {
 	render        *Renderer
@@ -26,7 +29,7 @@ func NewPositionsHandler(r *Renderer, pool *pgxpool.Pool,
 }
 
 func (h *PositionsHandler) Index(w http.ResponseWriter, r *http.Request) {
-	strategies, err := h.strategyRepo.List(r.Context(), h.pool)
+	strategies, err := h.strategyRepo.List(r.Context(), h.pool, false)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -41,17 +44,34 @@ func (h *PositionsHandler) Index(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Recent history across all strategies (limit 50 per strategy)
-	var allHistory []*store.PositionHistoryRow
-	for _, s := range strategies {
-		hist, err := h.historyRepo.ListByStrategy(r.Context(), h.pool, s.ID, 50)
-		if err == nil {
-			allHistory = append(allHistory, hist...)
-		}
+	// Recent history across all strategies, paginated.
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	offset := (page - 1) * historyPageSize
+	history, err := h.historyRepo.ListAll(r.Context(), h.pool, historyPageSize, offset)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	total, err := h.historyRepo.CountAll(r.Context(), h.pool)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	totalPages := (total + historyPageSize - 1) / historyPageSize
+	if totalPages < 1 {
+		totalPages = 1
 	}
 	data := h.statusHandler.WithStatus(r, map[string]any{
-		"Active":  active,
-		"History": allHistory,
+		"Active":     active,
+		"History":    history,
+		"Page":       page,
+		"TotalPages": totalPages,
+		"Total":      total,
+		"HasPrev":    page > 1,
+		"HasNext":    page < totalPages,
 	})
 	h.render.Render(w, http.StatusOK, "positions/index", data)
 }

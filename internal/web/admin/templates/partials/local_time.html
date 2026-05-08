@@ -1,0 +1,17 @@
+{{ define "local_time_script" }}
+<script>
+  // Replace any <span class="local-time" data-utc="ISO"> with the user's
+  // browser-local rendering. The server emits UTC ISO 8601 in data-utc.
+  document.querySelectorAll('.local-time').forEach(el => {
+    const iso = el.getAttribute('data-utc');
+    if (!iso) return;
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return;
+    const pad = n => String(n).padStart(2, '0');
+    el.textContent =
+      `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ` +
+      `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    el.title = iso; // keep the original UTC visible on hover
+  });
+</script>
+{{ end }}

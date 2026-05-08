@@ -19,12 +19,16 @@
     <tr class="border-t">
       <td class="px-3 py-2 font-mono">{{ .StrategyID }}</td>
       <td class="px-3 py-2">{{ .Symbol }}</td>
-      <td class="px-3 py-2 {{ if eq .Side "long" }}text-green-700{{ else }}text-red-600{{ end }}">{{ .Side }}</td>
+      <td class="px-3 py-2 {{ if eq .Side "long" }}text-green-700{{ else }}text-red-600{{ end }}">{{ sideCN .Side }}</td>
       <td class="px-3 py-2">{{ .Qty }}</td>
       <td class="px-3 py-2">{{ .EntrySignalPrice }}</td>
       <td class="px-3 py-2">{{ .EntryFillPrice }}</td>
       <td class="px-3 py-2">{{ .Status }}</td>
-      <td class="px-3 py-2 text-xs text-gray-500">{{ .OpenedAt.Format "01-02 15:04:05" }}</td>
+      <td class="px-3 py-2 text-xs text-gray-500">
+        <span class="local-time" data-utc="{{ .OpenedAt.UTC.Format "2006-01-02T15:04:05Z" }}">
+          {{ .OpenedAt.UTC.Format "01-02 15:04:05" }} UTC
+        </span>
+      </td>
     </tr>
     {{ else }}
     <tr><td colspan="8" class="px-3 py-4 text-center text-gray-500">无活跃持仓</td></tr>
@@ -32,7 +36,10 @@
   </tbody>
 </table>
 
-<h2 class="text-lg font-semibold mt-6 mb-2">最近平仓</h2>
+<div class="flex items-end justify-between mt-6 mb-2">
+  <h2 class="text-lg font-semibold">最近平仓</h2>
+  <span class="text-xs text-gray-500">共 {{ .Total }} 条 · 第 {{ .Page }} / {{ .TotalPages }} 页</span>
+</div>
 <table class="w-full bg-white shadow rounded text-sm">
   <thead class="bg-gray-100 text-left">
     <tr>
@@ -41,24 +48,48 @@
       <th class="px-3 py-2">方向</th>
       <th class="px-3 py-2">数量</th>
       <th class="px-3 py-2">开/平价</th>
-      <th class="px-3 py-2">PnL</th>
+      <th class="px-3 py-2">盈亏</th>
       <th class="px-3 py-2">原因</th>
     </tr>
   </thead>
   <tbody>
     {{ range .History }}
     <tr class="border-t">
-      <td class="px-3 py-2 text-xs">{{ .ClosedAt.Format "01-02 15:04:05" }}</td>
+      <td class="px-3 py-2 text-xs">
+        <span class="local-time" data-utc="{{ .ClosedAt.UTC.Format "2006-01-02T15:04:05Z" }}">
+          {{ .ClosedAt.UTC.Format "01-02 15:04:05" }} UTC
+        </span>
+      </td>
       <td class="px-3 py-2 font-mono">{{ .StrategyID }}</td>
-      <td class="px-3 py-2 {{ if eq .Side "long" }}text-green-700{{ else }}text-red-600{{ end }}">{{ .Side }}</td>
+      <td class="px-3 py-2 {{ if eq .Side "long" }}text-green-700{{ else }}text-red-600{{ end }}">{{ sideCN .Side }}</td>
       <td class="px-3 py-2">{{ .Qty }}</td>
       <td class="px-3 py-2 text-xs">{{ .EntryFillPrice }} &rarr; {{ .ExitFillPrice }}</td>
       <td class="px-3 py-2 {{ if .PnLUSDC.IsNegative }}text-red-600{{ else }}text-green-700{{ end }}">{{ .PnLUSDC }}</td>
-      <td class="px-3 py-2 text-xs">{{ .CloseReason }}</td>
+      <td class="px-3 py-2 text-xs">{{ closeReasonCN .CloseReason }}</td>
     </tr>
     {{ else }}
     <tr><td colspan="7" class="px-3 py-4 text-center text-gray-500">暂无历史</td></tr>
     {{ end }}
   </tbody>
 </table>
+
+<div class="flex items-center justify-center mt-4 space-x-1 text-sm">
+  {{ if .HasPrev }}
+    <a href="?page=1" class="px-3 py-1 rounded border bg-white hover:bg-gray-100">« 首页</a>
+    <a href="?page={{ sub .Page 1 }}" class="px-3 py-1 rounded border bg-white hover:bg-gray-100">上一页</a>
+  {{ else }}
+    <span class="px-3 py-1 rounded border bg-gray-50 text-gray-400">« 首页</span>
+    <span class="px-3 py-1 rounded border bg-gray-50 text-gray-400">上一页</span>
+  {{ end }}
+  <span class="px-3 py-1 rounded bg-blue-600 text-white">{{ .Page }}</span>
+  {{ if .HasNext }}
+    <a href="?page={{ add .Page 1 }}" class="px-3 py-1 rounded border bg-white hover:bg-gray-100">下一页</a>
+    <a href="?page={{ .TotalPages }}" class="px-3 py-1 rounded border bg-white hover:bg-gray-100">末页 »</a>
+  {{ else }}
+    <span class="px-3 py-1 rounded border bg-gray-50 text-gray-400">下一页</span>
+    <span class="px-3 py-1 rounded border bg-gray-50 text-gray-400">末页 »</span>
+  {{ end }}
+</div>
+
+{{ template "local_time_script" }}
 {{ end }}
