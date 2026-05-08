@@ -15,26 +15,32 @@ import (
 
 const maxBodyBytes = 16 * 1024 // 16KB; TV payloads are tiny
 
-// IngestService is the subset of ingest.Service we need.
+// IngestService is the subset of ingest.Service the handler depends on.
+// Receive is the synchronous fast path; the slow path runs on a worker
+// the handler hands off to via Dispatcher.
 type IngestService interface {
-	Ingest(ctx context.Context, body []byte, ip net.IP) (*ingest.IngestResult, error)
+	Receive(ctx context.Context, body []byte, ip net.IP) (*ingest.ReceiveResult, error)
+}
+
+// Dispatcher hands the slow path off to a per-strategy worker.
+type Dispatcher interface {
+	Submit(strategyID string, signalID int64)
 }
 
 type Handler struct {
-	svc IngestService
-	log zerolog.Logger
+	svc        IngestService
+	dispatcher Dispatcher
+	log        zerolog.Logger
 }
 
-func NewHandler(svc IngestService, log zerolog.Logger) *Handler {
-	return &Handler{svc: svc, log: log}
+func NewHandler(svc IngestService, d Dispatcher, log zerolog.Logger) *Handler {
+	return &Handler{svc: svc, dispatcher: d, log: log}
 }
 
 type response struct {
 	Decision string `json:"decision"`
 	Reason   string `json:"reason,omitempty"`
-	Action   string `json:"action,omitempty"`
-	SignalID  int64  `json:"signal_id,omitempty"`
-	RuleName string `json:"rule,omitempty"`
+	SignalID int64  `json:"signal_id,omitempty"`
 }
 
 func (h *Handler) Post(w http.ResponseWriter, r *http.Request) {
@@ -51,21 +57,26 @@ func (h *Handler) Post(w http.ResponseWriter, r *http.Request) {
 	}
 	ip := ClientIP(r)
 
-	res, err := h.svc.Ingest(r.Context(), body, ip)
+	res, err := h.svc.Receive(r.Context(), body, ip)
 	if err != nil {
-		logger.Error().Err(err).Msg("ingest internal error")
+		logger.Error().Err(err).Msg("ingest receive internal error")
 		writeJSON(w, http.StatusInternalServerError, response{Decision: "error", Reason: err.Error()})
 		return
 	}
 
-	status := http.StatusOK
-	if res.Decision == "invalid" {
-		status = http.StatusBadRequest
+	out := response{Decision: res.Decision, Reason: res.Reason, SignalID: res.SignalID}
+	switch res.Decision {
+	case "invalid":
+		writeJSON(w, http.StatusBadRequest, out)
+	case "pending":
+		// Hand off the slow path. Dispatcher.Submit is non-blocking and
+		// guarantees the signal is processed (synchronously as a fallback
+		// if the per-strategy queue is full).
+		h.dispatcher.Submit(res.StrategyID, res.SignalID)
+		writeJSON(w, http.StatusOK, out)
+	default: // "duplicate" or any future terminal Receive decision
+		writeJSON(w, http.StatusOK, out)
 	}
-	writeJSON(w, status, response{
-		Decision: res.Decision, Reason: res.Reason,
-		Action: res.ActionTaken, SignalID: res.SignalID, RuleName: res.RuleName,
-	})
 }
 
 // ClientIP extracts the client IP. If behind a trusted reverse proxy that

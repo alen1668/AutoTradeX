@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -21,23 +22,47 @@ type stubSvc struct {
 		body []byte
 		ip   net.IP
 	}
-	res *ingest.IngestResult
+	res *ingest.ReceiveResult
 	err error
 }
 
-func (s *stubSvc) Ingest(_ context.Context, body []byte, ip net.IP) (*ingest.IngestResult, error) {
+func (s *stubSvc) Receive(_ context.Context, body []byte, ip net.IP) (*ingest.ReceiveResult, error) {
 	s.got.body = body
 	s.got.ip = ip
 	return s.res, s.err
 }
 
-func TestHandler_AcceptsValidSignal(t *testing.T) {
-	svc := &stubSvc{res: &ingest.IngestResult{
-		SignalID: 42, Decision: "accepted", ActionTaken: "open_long",
-	}}
-	h := NewHandler(svc, zerolog.Nop())
+type stubDispatcher struct {
+	mu      sync.Mutex
+	submits []struct {
+		Strategy string
+		ID       int64
+	}
+}
 
-	body := `{"strategy_id":"s","symbol":"ETHUSDC","signal":"Long","price":"100","timestamp":1,"secret":"x"}`
+func (d *stubDispatcher) Submit(strategy string, id int64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.submits = append(d.submits, struct {
+		Strategy string
+		ID       int64
+	}{strategy, id})
+}
+
+func (d *stubDispatcher) Calls() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return len(d.submits)
+}
+
+func TestHandler_PendingReturns200AndDispatches(t *testing.T) {
+	svc := &stubSvc{res: &ingest.ReceiveResult{
+		SignalID: 42, StrategyID: "ETH", Decision: "pending",
+	}}
+	disp := &stubDispatcher{}
+	h := NewHandler(svc, disp, zerolog.Nop())
+
+	body := `{"strategy_id":"ETH","symbol":"ETHUSDT","signal":"Long","price":"100","timestamp":1,"secret":"x"}`
 	req := httptest.NewRequest(http.MethodPost, "/webhook/tv", strings.NewReader(body))
 	req.RemoteAddr = "203.0.113.5:1234"
 	w := httptest.NewRecorder()
@@ -46,37 +71,56 @@ func TestHandler_AcceptsValidSignal(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	var resp response
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	assert.Equal(t, "accepted", resp.Decision)
-	assert.Equal(t, "open_long", resp.Action)
+	assert.Equal(t, "pending", resp.Decision)
 	assert.Equal(t, int64(42), resp.SignalID)
 
-	assert.Equal(t, []byte(body), svc.got.body)
-	assert.NotNil(t, svc.got.ip)
+	require.Equal(t, 1, disp.Calls(), "pending decision must hand off to dispatcher")
+	assert.Equal(t, "ETH", disp.submits[0].Strategy)
+	assert.Equal(t, int64(42), disp.submits[0].ID)
+}
+
+func TestHandler_DuplicateReturns200WithoutDispatch(t *testing.T) {
+	svc := &stubSvc{res: &ingest.ReceiveResult{
+		SignalID: 7, Decision: "duplicate",
+	}}
+	disp := &stubDispatcher{}
+	h := NewHandler(svc, disp, zerolog.Nop())
+	req := httptest.NewRequest(http.MethodPost, "/webhook/tv", strings.NewReader("{}"))
+	req.RemoteAddr = "127.0.0.1:1234"
+	w := httptest.NewRecorder()
+	h.Post(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, 0, disp.Calls(), "duplicate must NOT submit again")
 }
 
 func TestHandler_InvalidReturns400(t *testing.T) {
-	svc := &stubSvc{res: &ingest.IngestResult{Decision: "invalid", Reason: "bad json"}}
-	h := NewHandler(svc, zerolog.Nop())
+	svc := &stubSvc{res: &ingest.ReceiveResult{Decision: "invalid", Reason: "bad json"}}
+	disp := &stubDispatcher{}
+	h := NewHandler(svc, disp, zerolog.Nop())
 	req := httptest.NewRequest(http.MethodPost, "/webhook/tv", strings.NewReader("{}"))
 	req.RemoteAddr = "127.0.0.1:1234"
 	w := httptest.NewRecorder()
 	h.Post(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, 0, disp.Calls())
 }
 
 func TestHandler_InternalErrorReturns500(t *testing.T) {
 	svc := &stubSvc{err: assertErr("boom")}
-	h := NewHandler(svc, zerolog.Nop())
+	disp := &stubDispatcher{}
+	h := NewHandler(svc, disp, zerolog.Nop())
 	req := httptest.NewRequest(http.MethodPost, "/webhook/tv", strings.NewReader("{}"))
 	req.RemoteAddr = "127.0.0.1:1234"
 	w := httptest.NewRecorder()
 	h.Post(w, req)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, 0, disp.Calls())
 }
 
 func TestHandler_RejectsGet(t *testing.T) {
-	h := NewHandler(&stubSvc{}, zerolog.Nop())
+	h := NewHandler(&stubSvc{}, &stubDispatcher{}, zerolog.Nop())
 	req := httptest.NewRequest(http.MethodGet, "/webhook/tv", nil)
 	w := httptest.NewRecorder()
 	h.Post(w, req)
