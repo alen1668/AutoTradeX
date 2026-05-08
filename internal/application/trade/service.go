@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -16,6 +17,19 @@ import (
 	"github.com/lizhaojie/tvbot/internal/store"
 	tradepkg "github.com/lizhaojie/tvbot/internal/trade"
 )
+
+// shortClientID builds a Binance client_order_id within the 36-char hard
+// limit. It uses single-character purpose prefixes (e=entry, s=stop,
+// b=backup_stop, t=take_profit, x=exit) and strips the "tv-" prefix from
+// the trace id, preserving uniqueness while saving ~7 characters.
+//
+// Format: <prefix>-<traceID-without-tv>-<suffix>
+// Example: e-20260508TRX-1778310000000-44 (29 chars, fits with margin
+// even for 11-char strategy IDs).
+func shortClientID(prefix, traceID string, suffix int64) string {
+	t := strings.TrimPrefix(traceID, "tv-")
+	return fmt.Sprintf("%s-%s-%d", prefix, t, suffix)
+}
 
 // StepSizer returns the lot-size step for a given symbol. BinanceTrader
 // satisfies this interface; DryRunTrader also provides a no-op implementation.
@@ -112,7 +126,7 @@ func (s *Service) OpenPosition(ctx context.Context, in OpenInput) (*OpenResult, 
 		if in.Side == position.SideShort {
 			entrySide = tradepkg.OrderSideSell
 		}
-		entryClientID := fmt.Sprintf("entry-%s-%d", in.TraceID, vpID)
+		entryClientID := shortClientID("e", in.TraceID, vpID)
 		entryRes, err := s.trader.Place(ctx, tradepkg.OrderRequest{
 			ClientOrderID:  entryClientID,
 			Symbol:         in.Strategy.Symbol,
@@ -188,7 +202,7 @@ func (s *Service) placeProtectiveOrders(ctx context.Context, tx pgx.Tx, vpID int
 	}
 
 	// 1) Main stop (limit stop)
-	stopClientID := fmt.Sprintf("stop-%s-%d", traceID, vpID)
+	stopClientID := shortClientID("s", traceID, vpID)
 	stopRes, err := s.trader.Place(ctx, tradepkg.OrderRequest{
 		ClientOrderID: stopClientID, Symbol: strat.Symbol, Side: exitSide,
 		Type: tradepkg.OrderTypeStop, Qty: qty, Price: mainStopLimit, StopPrice: mainStopTrigger,
@@ -212,7 +226,7 @@ func (s *Service) placeProtectiveOrders(ctx context.Context, tx pgx.Tx, vpID int
 	// "bstop"/"tp" prefixes (instead of "backup_stop"/"take_profit") keep the
 	// Binance clientOrderId under the 35-char limit (-4015). The internal
 	// `purpose` column on orders rows is unaffected.
-	backupClientID := fmt.Sprintf("bstop-%s-%d", traceID, vpID)
+	backupClientID := shortClientID("b", traceID, vpID)
 	if _, err := s.trader.Place(ctx, tradepkg.OrderRequest{
 		ClientOrderID: backupClientID, Symbol: strat.Symbol, Side: exitSide,
 		Type: tradepkg.OrderTypeStopMarket, Qty: qty, StopPrice: backupTrigger,
@@ -234,7 +248,7 @@ func (s *Service) placeProtectiveOrders(ctx context.Context, tx pgx.Tx, vpID int
 	if strat.HasTakeProfit() {
 		tpPct := strat.TakeProfitPct.Div(decimal.NewFromInt(100))
 		tpTrigger := entryFill.Mul(decimal.NewFromInt(1).Add(tpPct.Mul(dir)))
-		tpClientID := fmt.Sprintf("tp-%s-%d", traceID, vpID)
+		tpClientID := shortClientID("t", traceID, vpID)
 		if _, err := s.trader.Place(ctx, tradepkg.OrderRequest{
 			ClientOrderID: tpClientID, Symbol: strat.Symbol, Side: exitSide,
 			Type: tradepkg.OrderTypeTakeProfitMarket, Qty: qty, StopPrice: tpTrigger,
@@ -303,7 +317,7 @@ func (s *Service) ClosePosition(ctx context.Context, in CloseInput) (*CloseResul
 	if in.Side == position.SideShort {
 		exitSide = tradepkg.OrderSideBuy
 	}
-	exitClientID := fmt.Sprintf("exit-%s-%d", in.TraceID, in.VirtualPositionID)
+	exitClientID := shortClientID("x", in.TraceID, in.VirtualPositionID)
 	exitRes, err := s.trader.Place(ctx, tradepkg.OrderRequest{
 		ClientOrderID:  exitClientID,
 		Symbol:         in.Symbol,
