@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -18,6 +19,9 @@ type DailyStat struct {
 	WinRate   decimal.Decimal // 0..100
 	IsCumNeg  bool
 	CumPnL    decimal.Decimal
+	// BySymbol = { "ETHUSDT": +12.5, "BTCUSDT": -3.2, ... }. Empty if no
+	// trades that day.
+	BySymbol map[string]decimal.Decimal
 }
 
 // Totals holds period-level aggregate figures.
@@ -31,12 +35,6 @@ type Totals struct {
 }
 
 // StatsHandler renders the /stats page.
-//
-// When an IncomeFetcher is wired (testnet/live), $ P&L per day comes from
-// Binance's /fapi/v1/income — the single source of truth for realized P&L,
-// commissions, and funding. Trade counts and win rate continue to come from
-// the DB's position_history (Binance has no concept of our strategy_id).
-// In dry_run mode no fetcher is wired and the page falls back to DB-only.
 type StatsHandler struct {
 	render  *Renderer
 	pool    *pgxpool.Pool
@@ -45,29 +43,26 @@ type StatsHandler struct {
 	cache   *incomeCache
 }
 
-// NewStatsHandler constructs a StatsHandler. Pass income=nil for DB-only mode.
 func NewStatsHandler(r *Renderer, pool *pgxpool.Pool, statusH *StatusHandler, income IncomeFetcher) *StatsHandler {
 	return &StatsHandler{render: r, pool: pool, statusH: statusH, income: income, cache: newIncomeCache(30 * time.Second)}
 }
 
 // Index handles GET /stats.
 func (h *StatsHandler) Index(w http.ResponseWriter, r *http.Request) {
-	stats, totals, err := h.queryDaily(r.Context(), 30)
+	stats, totals, symbols, err := h.queryDaily(r.Context(), 30)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	data := h.statusH.WithStatus(r, map[string]any{
-		"Stats":  stats,
-		"Totals": totals,
+		"Stats":   stats,
+		"Totals":  totals,
+		"Symbols": symbols, // sorted, drives chart datasets + colors
 	})
 	h.render.Render(w, http.StatusOK, "stats/index", data)
 }
 
-// fetchBinanceDaily returns the Binance income aggregated by UTC day for
-// the given window, with a 30s in-memory cache to avoid hammering the API
-// on each /stats page load.
-func (h *StatsHandler) fetchBinanceDaily(ctx context.Context, since, until time.Time) (map[time.Time]IncomeDaily, error) {
+func (h *StatsHandler) fetchBinanceDaily(ctx context.Context, since, until time.Time) ([]IncomeRecord, error) {
 	records, ok := h.cache.get(since, until)
 	if !ok {
 		var err error
@@ -77,61 +72,110 @@ func (h *StatsHandler) fetchBinanceDaily(ctx context.Context, since, until time.
 		}
 		h.cache.set(since, until, records)
 	}
-	return aggregateIncome(records), nil
+	return records, nil
 }
 
-// queryDaily returns per-day stats for the last `days` days, newest first,
-// plus period-level totals. Rows are ordered oldest→newest in the DB query so
-// cumulative PnL can be computed incrementally; the slice is then reversed
-// before returning so the HTML table shows newest first.
-func (h *StatsHandler) queryDaily(ctx context.Context, days int) ([]DailyStat, Totals, error) {
+// queryDaily returns per-day stats for the last `days` days. When an
+// IncomeFetcher is wired, the per-symbol P&L breakdown comes from Binance's
+// /fapi/v1/income (REALIZED_PNL + COMMISSION + FUNDING_FEE per symbol).
+// Otherwise, falls back to position_history grouped by (day, symbol).
+//
+// Returns: stats (newest first), period totals, sorted distinct symbols.
+func (h *StatsHandler) queryDaily(ctx context.Context, days int) ([]DailyStat, Totals, []string, error) {
+	// 1) Trade counts and win rate from DB (Binance income has no symbol
+	//    grouping in our domain).
 	rows, err := h.pool.Query(ctx, `
 SELECT
   date_trunc('day', closed_at AT TIME ZONE 'UTC')::date AS day,
+  symbol,
   count(*)::int                                          AS trades,
   count(*) FILTER (WHERE pnl_usdc > 0)::int              AS wins,
   COALESCE(sum(pnl_usdc), 0)                             AS pnl
 FROM position_history
 WHERE closed_at >= now() - make_interval(days => $1)
-GROUP BY day
-ORDER BY day ASC`, days)
+GROUP BY day, symbol
+ORDER BY day ASC, symbol ASC`, days)
 	if err != nil {
-		return nil, Totals{}, err
+		return nil, Totals{}, nil, err
 	}
 	defer rows.Close()
 
-	var raw []DailyStat
+	// dayMap: day → DailyStat (totals + per-symbol pnl from DB).
+	dayMap := make(map[time.Time]*DailyStat)
+	symbolSet := make(map[string]struct{})
 	for rows.Next() {
-		var d DailyStat
-		if err := rows.Scan(&d.Date, &d.Trades, &d.WinTrades, &d.PnLUSDC); err != nil {
-			return nil, Totals{}, err
+		var (
+			day        time.Time
+			symbol     string
+			trades     int
+			wins       int
+			pnl        decimal.Decimal
+		)
+		if err := rows.Scan(&day, &symbol, &trades, &wins, &pnl); err != nil {
+			return nil, Totals{}, nil, err
 		}
-		raw = append(raw, d)
+		d, ok := dayMap[day]
+		if !ok {
+			d = &DailyStat{Date: day, BySymbol: make(map[string]decimal.Decimal)}
+			dayMap[day] = d
+		}
+		d.Trades += trades
+		d.WinTrades += wins
+		d.PnLUSDC = d.PnLUSDC.Add(pnl)
+		d.BySymbol[symbol] = d.BySymbol[symbol].Add(pnl)
+		symbolSet[symbol] = struct{}{}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, Totals{}, err
+		return nil, Totals{}, nil, err
 	}
 
-	// If a Binance IncomeFetcher is wired, override per-day $ P&L with the
-	// exchange's authoritative income totals (REALIZED_PNL + COMMISSION +
-	// FUNDING_FEE). Trade counts/wins still come from DB above.
+	// 2) When Income API is wired, override per-day per-symbol P&L with the
+	//    exchange's authoritative net income (incl. funding/commission).
 	if h.income != nil {
-		until := time.Now().UTC().Add(24 * time.Hour) // include today
+		until := time.Now().UTC().Add(24 * time.Hour)
 		since := until.AddDate(0, 0, -days-1)
-		if daily, err := h.fetchBinanceDaily(ctx, since, until); err == nil {
-			for i := range raw {
-				if d, ok := daily[raw[i].Date.UTC()]; ok {
-					raw[i].PnLUSDC = d.NetIncome
-				} else {
-					raw[i].PnLUSDC = decimal.Zero
+		records, err := h.fetchBinanceDaily(ctx, since, until)
+		if err == nil {
+			bySymbol := aggregateIncomeBySymbol(records)
+			for day, perSym := range bySymbol {
+				d, ok := dayMap[day]
+				if !ok {
+					// Day with income but no closed positions in DB (e.g.
+					// funding-only). Surface it so chart matches account.
+					d = &DailyStat{Date: day, BySymbol: make(map[string]decimal.Decimal)}
+					dayMap[day] = d
+				}
+				d.PnLUSDC = decimal.Zero
+				d.BySymbol = make(map[string]decimal.Decimal, len(perSym))
+				for sym, v := range perSym {
+					d.BySymbol[sym] = v
+					d.PnLUSDC = d.PnLUSDC.Add(v)
+					symbolSet[sym] = struct{}{}
 				}
 			}
 		}
-		// On error, leave raw[].PnLUSDC as DB values — soft fallback so the
-		// page still renders if Binance is briefly unreachable.
+		// Soft fallback on income error: leave DB values.
 	}
 
-	// Compute cumulative PnL and win rate (oldest→newest order).
+	// 3) Sort symbols + days for deterministic output.
+	symbols := make([]string, 0, len(symbolSet))
+	for s := range symbolSet {
+		symbols = append(symbols, s)
+	}
+	sort.Strings(symbols)
+
+	days_ := make([]time.Time, 0, len(dayMap))
+	for d := range dayMap {
+		days_ = append(days_, d)
+	}
+	sort.Slice(days_, func(i, j int) bool { return days_[i].Before(days_[j]) })
+
+	raw := make([]DailyStat, 0, len(days_))
+	for _, day := range days_ {
+		raw = append(raw, *dayMap[day])
+	}
+
+	// 4) Cumulative + win rate, oldest→newest.
 	cum := decimal.Zero
 	for i := range raw {
 		cum = cum.Add(raw[i].PnLUSDC)
@@ -144,7 +188,7 @@ ORDER BY day ASC`, days)
 		}
 	}
 
-	// Aggregate period-level totals.
+	// 5) Period totals.
 	var totals Totals
 	for _, d := range raw {
 		totals.TotalTrades += d.Trades
@@ -163,10 +207,11 @@ ORDER BY day ASC`, days)
 			Mul(decimal.NewFromInt(100))
 	}
 
-	// Reverse for display (newest first in the table).
+	// 6) Reverse for table display (newest first). Symbols stays in
+	//    deterministic ascending order so dataset colors are stable.
 	out := make([]DailyStat, len(raw))
 	for i := range raw {
 		out[i] = raw[len(raw)-1-i]
 	}
-	return out, totals, nil
+	return out, totals, symbols, nil
 }

@@ -35,8 +35,9 @@
       <th class="px-3 py-2">日期</th>
       <th class="px-3 py-2">交易数</th>
       <th class="px-3 py-2">胜率</th>
-      <th class="px-3 py-2">日 PnL</th>
-      <th class="px-3 py-2">累计 PnL</th>
+      <th class="px-3 py-2">日盈亏</th>
+      <th class="px-3 py-2">币种拆分</th>
+      <th class="px-3 py-2">累计盈亏</th>
     </tr>
   </thead>
   <tbody>
@@ -45,55 +46,96 @@
       <td class="px-3 py-2">{{ .Date.Format "2006-01-02" }}</td>
       <td class="px-3 py-2">{{ .Trades }}</td>
       <td class="px-3 py-2">{{ printf "%s%%" (.WinRate.StringFixed 1) }} ({{ .WinTrades }}/{{ .Trades }})</td>
-      <td class="px-3 py-2 {{ if .PnLUSDC.IsNegative }}text-red-600{{ else }}text-green-700{{ end }}">
+      <td class="px-3 py-2 font-medium {{ if .PnLUSDC.IsNegative }}text-red-600{{ else }}text-green-700{{ end }}">
         {{ .PnLUSDC.StringFixed 2 }}
+      </td>
+      <td class="px-3 py-2 text-xs">
+        {{ if .BySymbol }}
+          {{ range $sym, $v := .BySymbol }}
+            <span class="inline-block mr-2 mb-1 px-1.5 py-0.5 rounded {{ if $v.IsNegative }}bg-red-50 text-red-700{{ else }}bg-green-50 text-green-700{{ end }}">
+              {{ $sym }} {{ if $v.IsNegative }}{{ else }}+{{ end }}{{ $v.StringFixed 2 }}
+            </span>
+          {{ end }}
+        {{ else }}
+          <span class="text-gray-400">—</span>
+        {{ end }}
       </td>
       <td class="px-3 py-2 {{ if .IsCumNeg }}text-red-600{{ else }}text-green-700{{ end }}">
         {{ .CumPnL.StringFixed 2 }}
       </td>
     </tr>
     {{ else }}
-    <tr><td colspan="5" class="px-3 py-4 text-center text-gray-500">暂无平仓记录</td></tr>
+    <tr><td colspan="6" class="px-3 py-4 text-center text-gray-500">暂无平仓记录</td></tr>
     {{ end }}
   </tbody>
 </table>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
+// Per-day rows (oldest→newest after .reverse() since template renders newest-first).
 const stats = [
   {{ range .Stats }}
-  { date: {{ printf "%q" (.Date.Format "01-02") }}, pnl: {{ .PnLUSDC.String }}, cum: {{ .CumPnL.String }} },
+  {
+    date: {{ printf "%q" (.Date.Format "01-02") }},
+    pnl: {{ .PnLUSDC.String }},
+    cum: {{ .CumPnL.String }},
+    bySymbol: {
+      {{ range $sym, $v := .BySymbol -}}
+      {{ printf "%q" $sym }}: {{ $v.String }},
+      {{ end }}
+    }
+  },
   {{ end }}
 ].reverse();
+
+const symbols = [{{ range .Symbols }}{{ printf "%q" . }},{{ end }}];
+
 if (stats.length > 0) {
-  new Chart(document.getElementById('pnlChart'), {
+  // Distinct color per symbol — picked from a palette in stable index order
+  // so the same symbol always gets the same color across reloads.
+  const palette = ['#3b82f6', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16'];
+  const datasets = symbols.map((sym, i) => ({
     type: 'bar',
-    data: {
-      labels: stats.map(s => s.date),
-      datasets: [
-        {
-          type: 'bar',
-          label: '日 PnL',
-          data: stats.map(s => parseFloat(s.pnl)),
-          backgroundColor: stats.map(s => parseFloat(s.pnl) >= 0 ? '#22c55e' : '#dc2626'),
-          yAxisID: 'y',
-        },
-        {
-          type: 'line',
-          label: '累计 PnL',
-          data: stats.map(s => parseFloat(s.cum)),
-          borderColor: '#3b82f6',
-          backgroundColor: 'transparent',
-          yAxisID: 'y1',
-        }
-      ]
-    },
+    label: sym,
+    data: stats.map(s => parseFloat(s.bySymbol[sym] || 0)),
+    backgroundColor: palette[i % palette.length],
+    stack: 'pnl',
+    yAxisID: 'y',
+  }));
+  // Overlay cumulative line on the right axis.
+  datasets.push({
+    type: 'line',
+    label: '累计盈亏',
+    data: stats.map(s => parseFloat(s.cum)),
+    borderColor: '#1e293b',
+    backgroundColor: 'transparent',
+    borderWidth: 2,
+    pointRadius: 3,
+    yAxisID: 'y1',
+  });
+
+  new Chart(document.getElementById('pnlChart'), {
+    data: { labels: stats.map(s => s.date), datasets },
     options: {
       responsive: true,
       interaction: { mode: 'index', intersect: false },
+      plugins: {
+        tooltip: {
+          callbacks: {
+            footer: (items) => {
+              // Show daily total in the tooltip footer (sum of all bar stacks).
+              const total = items
+                .filter(it => it.dataset.type === 'bar')
+                .reduce((acc, it) => acc + it.parsed.y, 0);
+              return '日总: ' + total.toFixed(2);
+            },
+          },
+        },
+      },
       scales: {
-        y:  { type: 'linear', position: 'left',  title: { display: true, text: '日 PnL' } },
-        y1: { type: 'linear', position: 'right', title: { display: true, text: '累计' }, grid: { drawOnChartArea: false } },
+        x:  { stacked: true },
+        y:  { type: 'linear', position: 'left',  stacked: true, title: { display: true, text: '日盈亏' } },
+        y1: { type: 'linear', position: 'right', title: { display: true, text: '累计盈亏' }, grid: { drawOnChartArea: false } },
       },
     },
   });
