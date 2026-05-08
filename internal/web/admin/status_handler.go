@@ -15,15 +15,18 @@ type StatusHandler struct {
 	render       *Renderer
 	pool         *pgxpool.Pool
 	systemRepo   *store.SystemStateRepo
+	settingsRepo *store.SettingsRepo
 	strategyRepo *store.StrategyRepo
 	posRepo      *store.VirtualPositionRepo
 	mode         config.BotMode
 }
 
 func NewStatusHandler(r *Renderer, pool *pgxpool.Pool,
-	systemRepo *store.SystemStateRepo, strategyRepo *store.StrategyRepo,
+	systemRepo *store.SystemStateRepo, settingsRepo *store.SettingsRepo,
+	strategyRepo *store.StrategyRepo,
 	posRepo *store.VirtualPositionRepo, mode config.BotMode) *StatusHandler {
 	return &StatusHandler{render: r, pool: pool, systemRepo: systemRepo,
+		settingsRepo: settingsRepo,
 		strategyRepo: strategyRepo, posRepo: posRepo, mode: mode}
 }
 
@@ -35,6 +38,7 @@ type StatusData struct {
 	DailyPnL         string
 	DailyPnLNegative bool
 	ActivePositions  int
+	AgentEnabled     bool
 }
 
 // Build queries the DB and returns a populated StatusData.
@@ -56,6 +60,13 @@ func (h *StatusHandler) Build(r *http.Request) (StatusData, error) {
 			return StatusData{}, err
 		}
 	}
+	// Settings query failure must not break the status bar; fall back to false.
+	var agentEnabled bool
+	if h.settingsRepo != nil {
+		if cfg, err := h.settingsRepo.Get(r.Context(), h.pool); err == nil {
+			agentEnabled = cfg.AgentScorerEnabled
+		}
+	}
 	return StatusData{
 		Mode:             string(h.mode),
 		Armed:            s.Armed,
@@ -63,6 +74,7 @@ func (h *StatusHandler) Build(r *http.Request) (StatusData, error) {
 		DailyPnL:         s.DailyPnLUSDC.StringFixed(2),
 		DailyPnLNegative: s.DailyPnLUSDC.LessThan(decimal.Zero),
 		ActivePositions:  active,
+		AgentEnabled:     agentEnabled,
 	}, nil
 }
 

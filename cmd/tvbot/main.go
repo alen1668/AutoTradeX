@@ -202,7 +202,7 @@ func main() {
 	}
 
 	// ── admin handlers ───────────────────────────────────────────────────────
-	statusHandler := admin.NewStatusHandler(renderer, pool, systemRepo, strategyRepo, posRepo, cfg.BotMode)
+	statusHandler := admin.NewStatusHandler(renderer, pool, systemRepo, settingsRepo, strategyRepo, posRepo, cfg.BotMode)
 	authHandler := admin.NewAuthHandler(renderer, sess, userRepo, pool)
 	strategiesHandler := admin.NewStrategiesHandler(renderer, strategyRepo, pool, statusHandler)
 	positionsHandler := admin.NewPositionsHandler(renderer, pool, posRepo, strategyRepo, historyRepo, statusHandler)

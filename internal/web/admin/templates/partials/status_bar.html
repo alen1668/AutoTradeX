@@ -6,6 +6,7 @@
     <span>熔断: {{ if .BreakerTripped }}<span class="text-red-600">&#x26A0;&#xFE0F; 触发</span>{{ else }}<span class="text-green-700">正常</span>{{ end }}</span>
     <span>今日盈亏: <strong class="{{ if .DailyPnLNegative }}text-red-600{{ else }}text-green-700{{ end }}">{{ .DailyPnL }}</strong></span>
     <span>活跃: {{ .ActivePositions }}</span>
+    <span>AI 评分: {{ if .AgentEnabled }}<span class="text-blue-700 font-medium">已启用</span>{{ else }}<span class="text-gray-400">已停用</span>{{ end }}</span>
   </div>
 </div>
 {{ end }}
