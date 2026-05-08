@@ -29,6 +29,7 @@ type Service struct {
 	cfg          Config
 	pool         *pgxpool.Pool
 	signalRepo   *store.SignalRepo
+	settingsRepo *store.SettingsRepo
 	strategyRepo *store.StrategyRepo
 	posRepo      *store.VirtualPositionRepo
 	systemRepo   *store.SystemStateRepo
@@ -36,21 +37,24 @@ type Service struct {
 	risk         *risk.Pipeline
 	trade        *trade.Service
 	notifier     notify.Notifier
+	agent        *AgentHook // nil = agent layer not wired (behavior identical to pre-agent bot)
 	log          zerolog.Logger
 }
 
 func NewService(cfg Config, pool *pgxpool.Pool,
-	signalRepo *store.SignalRepo, strategyRepo *store.StrategyRepo,
+	signalRepo *store.SignalRepo, settingsRepo *store.SettingsRepo,
+	strategyRepo *store.StrategyRepo,
 	posRepo *store.VirtualPositionRepo, systemRepo *store.SystemStateRepo,
 	idem *idempotency.Checker, riskPipe *risk.Pipeline, tradeSvc *trade.Service,
-	notifier notify.Notifier, log zerolog.Logger,
+	notifier notify.Notifier, agent *AgentHook, log zerolog.Logger,
 ) *Service {
 	return &Service{
 		cfg: cfg, pool: pool,
-		signalRepo: signalRepo, strategyRepo: strategyRepo,
+		signalRepo: signalRepo, settingsRepo: settingsRepo,
+		strategyRepo: strategyRepo,
 		posRepo: posRepo, systemRepo: systemRepo,
 		idempotency: idem, risk: riskPipe, trade: tradeSvc,
-		notifier: notifier, log: log,
+		notifier: notifier, agent: agent, log: log,
 	}
 }
 
@@ -197,6 +201,37 @@ func (s *Service) processSignal(ctx context.Context, sig *sigpkg.Signal, signalI
 		_ = s.notifier.Send(ctx, notify.BuildDeniedMessage(sig.StrategyID, sig.Symbol, string(sig.Kind), dec.RuleName, dec.Reason))
 		return nil
 	}
+
+	// === Agent 评分 (新增) ===
+	// Always read latest settings so config changes take effect without
+	// a restart. agent==nil OR agent_scorer_enabled=false → trade verdict
+	// with -1 score (no rows written) — strict equivalence to pre-agent
+	// behavior (test scenario A guards this contract).
+	settings, settingsErr := s.settingsRepo.Get(ctx, s.pool)
+	if settingsErr != nil {
+		s.log.Warn().Err(settingsErr).Msg("agent: settings load failed; treating as scorer disabled")
+		settings = &store.Settings{}
+	}
+	verdict := agentVerdict{Action: "trade", Score: -1, DryRun: settings.AgentScorerDryRun}
+	if s.agent != nil {
+		verdict = s.agent.evaluate(ctx, s.pool, s.log, s.notifier, settings, sig, loadCtx.Strategy, signalID)
+	}
+	if verdict.Score >= 0 {
+		if err := s.signalRepo.UpdateAgentResult(ctx, s.pool, signalID, verdict.Score, verdict.Decision, verdict.DryRun); err != nil {
+			s.log.Warn().Err(err).Int64("signal_id", signalID).Msg("agent: UpdateAgentResult failed (non-fatal)")
+		}
+	} else if verdict.Decision == "failed" {
+		if err := s.signalRepo.UpdateAgentFailed(ctx, s.pool, signalID, verdict.DryRun); err != nil {
+			s.log.Warn().Err(err).Int64("signal_id", signalID).Msg("agent: UpdateAgentFailed failed (non-fatal)")
+		}
+	}
+	if verdict.Action == "abandon" {
+		_ = s.signalRepo.UpdateDecision(ctx, s.pool, signalID, "abandoned", abandonReason(verdict))
+		_ = s.notifier.Send(ctx, notify.BuildAgentAbandonedMessage(
+			sig.StrategyID, sig.Symbol, string(sig.Kind), verdict.Score, verdict.Reasoning))
+		return nil
+	}
+	// === Agent 评分结束 ===
 
 	action := position.Decide(loadCtx.CurrentPosition, sig.Kind)
 

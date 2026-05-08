@@ -176,9 +176,12 @@ func main() {
 			return s.WebhookSecret, nil
 		},
 	}
+	// AgentHook is wired in Task 7.1; for now pass nil so behavior matches
+	// pre-agent ingest (the scorer enable flag in settings will also start
+	// out false, so this is a defense-in-depth zero).
 	ingestSvc := ingest.NewService(ingestCfg, pool,
-		signalRepo, strategyRepo, posRepo, systemRepo,
-		idem, riskPipe, tradeSvc, notifier, logger)
+		signalRepo, settingsRepo, strategyRepo, posRepo, systemRepo,
+		idem, riskPipe, tradeSvc, notifier, nil, logger)
 
 	// ── async dispatcher: per-strategy worker pool ─────────────────────────
 	// TradingView times out webhooks at ~3s. The dispatcher lets the HTTP

@@ -120,7 +120,16 @@ func indexAfter(s, sub string) int {
 
 func newService(t *testing.T, p *pgxpool.Pool) *Service {
 	t.Helper()
+	return newServiceWithAgent(t, p, nil)
+}
+
+// newServiceWithAgent constructs an ingest.Service with an optional
+// AgentHook. Pass nil to keep the pre-agent behavior (used by all
+// non-scorer tests so existing assertions stay valid).
+func newServiceWithAgent(t *testing.T, p *pgxpool.Pool, agent *AgentHook) *Service {
+	t.Helper()
 	signalRepo := store.NewSignalRepo(p)
+	settingsRepo := store.NewSettingsRepo(p)
 	strategyRepo := store.NewStrategyRepo(p)
 	posRepo := store.NewVirtualPositionRepo(p)
 	systemRepo := store.NewSystemStateRepo(p)
@@ -138,8 +147,8 @@ func newService(t *testing.T, p *pgxpool.Pool) *Service {
 		SecretLoader: func(_ context.Context) (string, error) {
 			return "secret", nil
 		},
-	}, p, signalRepo, strategyRepo, posRepo, systemRepo, idem, pipe, tradeSvc,
-		notify.NoOp{}, zerolog.Nop())
+	}, p, signalRepo, settingsRepo, strategyRepo, posRepo, systemRepo, idem, pipe, tradeSvc,
+		notify.NoOp{}, agent, zerolog.Nop())
 }
 
 func TestIngest_OpenLongDryRun(t *testing.T) {
