@@ -180,6 +180,12 @@ func main() {
 		signalRepo, strategyRepo, posRepo, systemRepo,
 		idem, riskPipe, tradeSvc, notifier, logger)
 
+	// ── async dispatcher: per-strategy worker pool ─────────────────────────
+	// TradingView times out webhooks at ~3s. The dispatcher lets the HTTP
+	// handler return 200 in <100ms while trade execution runs on a worker
+	// goroutine per strategy_id (FIFO within a strategy, parallel across).
+	dispatcher := ingest.NewDispatcher(ingestSvc, notifier, logger)
+
 	// ── sessions ─────────────────────────────────────────────────────────────
 	sess := scs.New()
 	sess.Lifetime = 12 * time.Hour
@@ -210,7 +216,7 @@ func main() {
 	settingsHandler := admin.NewSettingsHandler(renderer, pool, settingsRepo, statusHandler)
 
 	// ── webhook handler ──────────────────────────────────────────────────────
-	webhookHandler := webhook.NewHandler(ingestSvc, logger)
+	webhookHandler := webhook.NewHandler(ingestSvc, dispatcher, logger)
 
 	// ── HTTP server + routing ────────────────────────────────────────────────
 	srv := web.New(cfg.HTTPListen, logger)
@@ -257,6 +263,8 @@ func main() {
 			r.Get("/strategies/{id}/edit", strategiesHandler.Edit)
 			r.Post("/strategies/{id}", strategiesHandler.Save)
 			r.Post("/strategies/{id}/toggle", strategiesHandler.Toggle)
+			r.Post("/strategies/{id}/archive", strategiesHandler.Archive)
+			r.Post("/strategies/{id}/unarchive", strategiesHandler.Unarchive)
 			r.Post("/strategies/{id}/delete", strategiesHandler.Delete)
 
 			// Positions
@@ -292,10 +300,20 @@ func main() {
 	defer cancel()
 
 	// ── startup recovery (BEFORE HTTP server) ────────────────────────────────
-	recovery := reconcile.NewRecovery(pool, posRepo, systemRepo, trader, notifier, logger)
+	recovery := reconcile.NewRecovery(pool, posRepo, orderRepo, historyRepo, systemRepo, trader, notifier, logger)
 	if err := recovery.Run(context.Background()); err != nil {
 		logger.Error().Err(err).Msg("startup recovery failed")
 		os.Exit(1)
+	}
+
+	// ── signal recovery: re-enqueue pending webhook signals interrupted by
+	// crash; flag stale ones (>10min) as abandoned with critical alert.
+	sigRecovery := reconcile.NewSignalRecovery(pool, signalRepo, dispatcher,
+		notifier, logger, 10*time.Minute)
+	if err := sigRecovery.Run(context.Background()); err != nil {
+		// soft-fail: bot can still process new webhooks; recovered signals
+		// surface in /signals as 'pending' for the operator to examine.
+		logger.Error().Err(err).Msg("signal recovery failed")
 	}
 
 	// ── order reconciler (background goroutine) ──────────────────────────────
@@ -304,7 +322,7 @@ func main() {
 	if dbSettings.ReconcilerIntervalSeconds > 0 {
 		reconcilerInterval = dbSettings.ReconcilerIntervalSeconds
 	}
-	reconciler := reconcile.New(pool, orderRepo, posRepo, trader, notifier, logger,
+	reconciler := reconcile.New(pool, orderRepo, posRepo, historyRepo, trader, notifier, logger,
 		time.Duration(reconcilerInterval)*time.Second)
 	go func() {
 		if err := reconciler.Run(shutCtx); err != nil && !errors.Is(err, context.Canceled) {
@@ -315,5 +333,15 @@ func main() {
 	if err := srv.Start(shutCtx); err != nil {
 		logger.Error().Err(err).Msg("server error")
 		os.Exit(1)
+	}
+
+	// HTTP listener has stopped accepting new requests; drain in-flight
+	// dispatcher workers so already-received signals finish their trade
+	// execution. Any signals still buffered at deadline stay 'pending' in
+	// DB for the next startup recovery to pick up.
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer drainCancel()
+	if err := dispatcher.Shutdown(drainCtx); err != nil {
+		logger.Warn().Err(err).Msg("dispatcher shutdown timed out — pending signals stay in DB for next recovery")
 	}
 }
