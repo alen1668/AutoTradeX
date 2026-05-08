@@ -10,7 +10,7 @@ import (
 	"github.com/lizhaojie/tvbot/internal/store"
 )
 
-const signalsPageSize = 50
+const signalsPageSize = 20
 
 type SignalsHandler struct {
 	render        *Renderer
@@ -72,7 +72,7 @@ func (h *SignalsHandler) Index(w http.ResponseWriter, r *http.Request) {
 			Filter:     filter,
 			Strategies: strategies,
 			Symbols:    symbols,
-			Decisions:  []string{"accepted", "duplicate", "risk_denied", "disarmed", "invalid"},
+			Decisions:  []string{"accepted", "pending", "duplicate", "risk_denied", "disarmed", "invalid", "abandoned"},
 			Page:       page,
 			TotalPages: totalPages,
 			Total:      total,

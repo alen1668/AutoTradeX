@@ -90,7 +90,115 @@ func funcMap() template.FuncMap {
 			// helper for embedding JSON in scripts (kept tiny for MVP)
 			return template.JS(fmt.Sprintf("%v", v)), nil
 		},
+		"sideCN": func(side string) string {
+			switch side {
+			case "long":
+				return "多头"
+			case "short":
+				return "空头"
+			}
+			return side
+		},
+		"closeReasonCN": func(reason string) string {
+			switch reason {
+			case "signal":
+				return "信号平仓"
+			case "stop_loss":
+				return "止损触发"
+			case "take_profit":
+				return "止盈触发"
+			case "recovery_offline":
+				return "离线平仓(恢复)"
+			case "manual":
+				return "手工平仓"
+			}
+			return reason
+		},
+		"kindCN": func(kind string) string {
+			switch kind {
+			case "long":
+				return "开多"
+			case "short":
+				return "开空"
+			case "exit_long":
+				return "平多"
+			case "exit_short":
+				return "平空"
+			}
+			return kind
+		},
+		"decisionCN": func(d string) string {
+			switch d {
+			case "accepted":
+				return "接受"
+			case "duplicate":
+				return "重复"
+			case "risk_denied":
+				return "风控拒绝"
+			case "disarmed":
+				return "未启用"
+			case "invalid":
+				return "无效"
+			case "pending":
+				return "处理中"
+			case "abandoned":
+				return "已放弃"
+			}
+			return d
+		},
+		"decisionReasonCN": decisionReasonCN,
+		"add":              func(a, b int) int { return a + b },
+		"sub":              func(a, b int) int { return a - b },
 	}
+}
+
+// decisionReasonCN translates the common DecisionReason values written by
+// the ingest pipeline. Free-form parts (binance error messages, rule reasons
+// after the prefix) are passed through. Unknown values return as-is.
+func decisionReasonCN(reason string) string {
+	// Exact matches for short codes.
+	switch reason {
+	case "":
+		return ""
+	case "noop":
+		return "无操作"
+	case "close":
+		return "平仓"
+	case "open_long":
+		return "开多"
+	case "open_short":
+		return "开空"
+	case "close_and_open_long":
+		return "反手开多(平空+开多)"
+	case "close_and_open_short":
+		return "反手开空(平多+开空)"
+	case "system not armed":
+		return "系统未启用"
+	case "strategy disabled":
+		return "策略已禁用"
+	case "strategy archived":
+		return "策略已归档"
+	case "secret mismatch":
+		return "密钥不匹配"
+	}
+	// Prefix-translate composite messages so the operator-relevant tail
+	// (binance error, rule reason) stays intact.
+	for prefix, cn := range map[string]string{
+		"unknown signal kind: ": "未知信号类型: ",
+		"open failed: ":         "开仓失败: ",
+		"close failed: ":        "平仓失败: ",
+		"reverse close failed: ": "反手平仓失败: ",
+		"reverse open failed: ":  "反手开仓失败: ",
+		"load context: ":        "加载上下文失败: ",
+		"max_position: ":        "持仓金额超限: ",
+		"max_total_leverage: ":  "总杠杆超限: ",
+		"max_daily_loss: ":      "日亏达限: ",
+	} {
+		if len(reason) > len(prefix) && reason[:len(prefix)] == prefix {
+			return cn + reason[len(prefix):]
+		}
+	}
+	return reason
 }
 
 // Render writes the named page (e.g. "login", "strategies/index") with `data` as ctx.

@@ -3,11 +3,11 @@
 
 <form method="get" action="/signals" class="bg-white shadow rounded p-3 mb-4 flex flex-wrap gap-3 items-end text-sm">
   <div>
-    <label class="block text-xs text-gray-500 mb-1">decision</label>
+    <label class="block text-xs text-gray-500 mb-1">决策</label>
     <select name="decision" class="border rounded px-2 py-1">
       <option value="">全部</option>
       {{ range .Page.Decisions }}
-        <option value="{{ . }}" {{ if eq . $.Page.Filter.Decision }}selected{{ end }}>{{ . }}</option>
+        <option value="{{ . }}" {{ if eq . $.Page.Filter.Decision }}selected{{ end }}>{{ decisionCN . }}</option>
       {{ end }}
     </select>
   </div>
@@ -46,7 +46,7 @@
       <th class="px-3 py-2">币种</th>
       <th class="px-3 py-2">方向</th>
       <th class="px-3 py-2">价格</th>
-      <th class="px-3 py-2">decision</th>
+      <th class="px-3 py-2">决策</th>
       <th class="px-3 py-2">原因</th>
       <th class="px-3 py-2">trace_id</th>
     </tr>
@@ -61,24 +61,28 @@
       </td>
       <td class="px-3 py-2 font-mono">{{ .StrategyID }}</td>
       <td class="px-3 py-2">{{ .Symbol }}</td>
-      <td class="px-3 py-2">{{ .Kind }}</td>
+      <td class="px-3 py-2">{{ kindCN .Kind }}</td>
       <td class="px-3 py-2">{{ .SignalPrice }}</td>
       <td class="px-3 py-2">
         {{ if eq .Decision "accepted" }}
-          <span class="text-green-700 font-medium">accepted</span>
+          <span class="text-green-700 font-medium">{{ decisionCN .Decision }}</span>
         {{ else if eq .Decision "duplicate" }}
-          <span class="text-gray-500">duplicate</span>
+          <span class="text-gray-500">{{ decisionCN .Decision }}</span>
         {{ else if eq .Decision "risk_denied" }}
-          <span class="text-orange-600 font-medium">risk_denied</span>
+          <span class="text-orange-600 font-medium">{{ decisionCN .Decision }}</span>
         {{ else if eq .Decision "disarmed" }}
-          <span class="text-yellow-700 font-medium">disarmed</span>
+          <span class="text-yellow-700 font-medium">{{ decisionCN .Decision }}</span>
         {{ else if eq .Decision "invalid" }}
-          <span class="text-red-600 font-medium">invalid</span>
+          <span class="text-red-600 font-medium">{{ decisionCN .Decision }}</span>
+        {{ else if eq .Decision "pending" }}
+          <span class="text-blue-600 font-medium">{{ decisionCN .Decision }}</span>
+        {{ else if eq .Decision "abandoned" }}
+          <span class="text-orange-500 font-medium">{{ decisionCN .Decision }}</span>
         {{ else }}
-          {{ .Decision }}
+          {{ decisionCN .Decision }}
         {{ end }}
       </td>
-      <td class="px-3 py-2 text-xs">{{ .DecisionReason }}</td>
+      <td class="px-3 py-2 text-xs">{{ decisionReasonCN .DecisionReason }}</td>
       <td class="px-3 py-2 text-xs font-mono text-gray-500">{{ .TraceID }}</td>
     </tr>
     {{ else }}
@@ -103,17 +107,5 @@
   </div>
 </div>
 
-<script>
-  // Render UTC times in browser-local timezone. Server emits ISO 8601 in
-  // data-utc; we replace the visible text with a localized format.
-  document.querySelectorAll('.local-time').forEach(el => {
-    const iso = el.getAttribute('data-utc');
-    if (!iso) return;
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return;
-    const pad = n => String(n).padStart(2, '0');
-    el.textContent = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-    el.title = iso;
-  });
-</script>
+{{ template "local_time_script" }}
 {{ end }}
