@@ -54,6 +54,10 @@ func New(cfg config.BinanceConfig, apiKey, apiSecret string, mode config.BotMode
 	}
 }
 
+// FuturesClient exposes the underlying *futures.Client so other components
+// (e.g. agent/market kline fetcher) can share the connection pool + auth.
+func (t *Trader) FuturesClient() *futures.Client { return t.client }
+
 // Place sends an order to Binance and returns the result. Conditional
 // orders (STOP / STOP_MARKET / TAKE_PROFIT_MARKET) are routed to the Algo
 // Order endpoint because the new demo.binance.com platform and Multi-Asset

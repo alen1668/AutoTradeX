@@ -14,6 +14,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/shopspring/decimal"
 
+	"github.com/lizhaojie/tvbot/internal/agent/history"
+	"github.com/lizhaojie/tvbot/internal/agent/market"
+	"github.com/lizhaojie/tvbot/internal/agent/portfolio"
+	"github.com/lizhaojie/tvbot/internal/agent/scorer"
 	"github.com/lizhaojie/tvbot/internal/application/ingest"
 	"github.com/lizhaojie/tvbot/internal/application/reconcile"
 	"github.com/lizhaojie/tvbot/internal/application/trade"
@@ -31,6 +35,22 @@ import (
 
 	web "github.com/lizhaojie/tvbot/internal/web"
 )
+
+// portfolioRepo adapts the two store repos that portfolio.Provider needs
+// (active virtual positions + daily realized PnL) into the single
+// portfolio.Repo interface. Lives in main.go so the agent/portfolio
+// package itself never imports two store types just to compose them.
+type portfolioRepo struct {
+	vp *store.VirtualPositionRepo
+	ph *store.PositionHistoryRepo
+}
+
+func (r portfolioRepo) ListActive(ctx context.Context, q store.Querier) ([]*store.VirtualPositionRow, error) {
+	return r.vp.ListActive(ctx, q)
+}
+func (r portfolioRepo) DailyRealizedPnL(ctx context.Context, q store.Querier, day time.Time) (decimal.Decimal, error) {
+	return r.ph.DailyRealizedPnL(ctx, q, day)
+}
 
 func main() {
 	// ── seed-user sub-command ────────────────────────────────────────────────
@@ -176,12 +196,39 @@ func main() {
 			return s.WebhookSecret, nil
 		},
 	}
-	// AgentHook is wired in Task 7.1; for now pass nil so behavior matches
-	// pre-agent ingest (the scorer enable flag in settings will also start
-	// out false, so this is a defense-in-depth zero).
+	// ── agent scoring layer ────────────────────────────────────────────
+	// Constructed unconditionally; settings.agent_scorer_enabled is the
+	// runtime gate. Empty LLMAPIKey here means scorer.Score will hit a 401
+	// and fall through fail_mode — that's by design (the /system enable
+	// path enforces the empty-key precheck so this only happens if
+	// someone toggled the flag in DB by hand).
+	agentEvalRepo := store.NewAgentEvalRepo(pool)
+	var llmClient scorer.LLMClient
+	switch dbSettings.LLMAPIProvider {
+	case "anthropic", "":
+		llmClient = scorer.NewAnthropicClient(dbSettings.LLMAPIKey, dbSettings.LLMAPIBaseURL)
+	default:
+		logger.Warn().Str("provider", dbSettings.LLMAPIProvider).
+			Msg("unknown LLM provider; agent scorer will fail-mode")
+		llmClient = scorer.NewAnthropicClient("", "")
+	}
+	scorerFactory := scorer.NewFactory(llmClient, agentEvalRepo, pool,
+		logger.With().Str("c", "agent_scorer").Logger())
+	historyProv := history.New(historyRepo, pool).WithLogger(
+		logger.With().Str("c", "agent_history").Logger())
+	portfolioProv := portfolio.New(portfolioRepo{vp: posRepo, ph: historyRepo}, pool).WithLogger(
+		logger.With().Str("c", "agent_portfolio").Logger())
+	var marketProv *market.Provider
+	if bt, ok := trader.(*binanceinfra.Trader); ok {
+		klineClient := market.NewBinanceKlineClient(bt.FuturesClient())
+		marketProv = market.NewProvider(klineClient, 30*time.Second).WithLogger(
+			logger.With().Str("c", "agent_market").Logger())
+	}
+	agentHook := ingest.NewAgentHook(scorerFactory, historyProv, portfolioProv, marketProv)
+
 	ingestSvc := ingest.NewService(ingestCfg, pool,
 		signalRepo, settingsRepo, strategyRepo, posRepo, systemRepo,
-		idem, riskPipe, tradeSvc, notifier, nil, logger)
+		idem, riskPipe, tradeSvc, notifier, agentHook, logger)
 
 	// ── async dispatcher: per-strategy worker pool ─────────────────────────
 	// TradingView times out webhooks at ~3s. The dispatcher lets the HTTP
@@ -206,7 +253,6 @@ func main() {
 	authHandler := admin.NewAuthHandler(renderer, sess, userRepo, pool)
 	strategiesHandler := admin.NewStrategiesHandler(renderer, strategyRepo, pool, statusHandler)
 	positionsHandler := admin.NewPositionsHandler(renderer, pool, posRepo, strategyRepo, historyRepo, statusHandler)
-	agentEvalRepo := store.NewAgentEvalRepo(pool)
 	signalsHandler := admin.NewSignalsHandler(renderer, pool, signalRepo, agentEvalRepo, statusHandler)
 	systemHandler := admin.NewSystemHandler(systemRepo, settingsRepo, pool, sess, renderer, statusHandler, cfg.BotMode)
 	// Inject IncomeFetcher only when running against a real exchange (testnet
