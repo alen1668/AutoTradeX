@@ -1,0 +1,151 @@
+package scorer
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/shopspring/decimal"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	sigpkg "github.com/lizhaojie/tvbot/internal/domain/signal"
+	"github.com/lizhaojie/tvbot/internal/domain/strategy"
+)
+
+// fixedInput is the canonical ScoreInput for golden-file tests. Stable so
+// the rendered prompt is deterministic.
+func fixedInput() ScoreInput {
+	return ScoreInput{
+		Signal: &sigpkg.Signal{
+			StrategyID:    "supertrend-eth",
+			Symbol:        "ETHUSDC",
+			Kind:          sigpkg.KindLong,
+			Price:         decimal.RequireFromString("2300.50"),
+			TVTimestampMs: 1714723504000, // 2024-05-03 08:05:04 UTC
+		},
+		Strategy: &strategy.Strategy{
+			Config: strategy.Config{ID: "supertrend-eth", Symbol: "ETHUSDC"},
+		},
+		SymbolHistory: []HistoricalTrade{
+			{
+				OpenedAt:    time.Date(2024, 5, 1, 12, 0, 0, 0, time.UTC),
+				Symbol:      "ETHUSDC",
+				Direction:   "long",
+				EntryPrice:  decimal.RequireFromString("2280"),
+				ExitPrice:   decimal.RequireFromString("2310"),
+				PnLUSD:      decimal.RequireFromString("30"),
+				DurationMin: 45,
+				ExitReason:  "tp",
+			},
+		},
+		StrategyHistory: []HistoricalTrade{
+			{
+				OpenedAt:    time.Date(2024, 5, 2, 10, 0, 0, 0, time.UTC),
+				Symbol:      "BTCUSDC",
+				Direction:   "short",
+				EntryPrice:  decimal.RequireFromString("60000"),
+				ExitPrice:   decimal.RequireFromString("59500"),
+				PnLUSD:      decimal.RequireFromString("50"),
+				DurationMin: 90,
+				ExitReason:  "tp",
+			},
+		},
+		Portfolio: &PortfolioSnapshot{
+			TotalNotionalUSD: decimal.RequireFromString("5000"),
+			DailyPnLUSD:      decimal.RequireFromString("12.50"),
+			OpenPositions: []OpenPosition{
+				{StrategyID: "supertrend-btc", Symbol: "BTCUSDC", Direction: "long",
+					EntryPrice: decimal.RequireFromString("60100"),
+					NotionalUSD: decimal.RequireFromString("3000"),
+					UnrealizedPnL: decimal.RequireFromString("5")},
+			},
+		},
+		Market: &MarketContext{
+			Symbol: "ETHUSDC",
+			Last24hHigh: decimal.RequireFromString("2350"), Last24hLow: decimal.RequireFromString("2250"),
+			Last24hChangePct: decimal.RequireFromString("1.25"), Last1hChangePct: decimal.RequireFromString("0.30"),
+			PriceVs24hRange: decimal.RequireFromString("0.55"),
+			Volatility24h:   decimal.RequireFromString("0.018"),
+			KlineLookback1h: []decimal.Decimal{
+				decimal.RequireFromString("2280"), decimal.RequireFromString("2295"),
+				decimal.RequireFromString("2300"), decimal.RequireFromString("2300.5"),
+			},
+		},
+		HighVolWindows: []string{"us_market_open_window"},
+	}
+}
+
+func TestRenderPrompt_GoldenFile(t *testing.T) {
+	in := fixedInput()
+	rendered, hash, err := RenderPrompt(in)
+	require.NoError(t, err)
+	require.NotEmpty(t, hash)
+	require.Len(t, hash, 8)
+
+	goldenPath := filepath.Join("testdata", "prompt_v1.golden")
+	if os.Getenv("UPDATE_GOLDEN") == "1" {
+		require.NoError(t, os.WriteFile(goldenPath, []byte(rendered), 0644))
+		t.Log("updated golden file")
+		return
+	}
+	want, err := os.ReadFile(goldenPath)
+	require.NoError(t, err, "golden file missing — run: UPDATE_GOLDEN=1 go test ./internal/agent/scorer/... -run TestRenderPrompt_GoldenFile")
+	if string(want) != rendered {
+		t.Errorf("prompt diverged from golden\n--- got ---\n%s\n--- want ---\n%s", rendered, string(want))
+	}
+}
+
+func TestRenderPrompt_PortfolioNil(t *testing.T) {
+	in := fixedInput()
+	in.Portfolio = nil
+	rendered, _, err := RenderPrompt(in)
+	require.NoError(t, err)
+	assert.Contains(t, rendered, "仓位数据暂不可用")
+}
+
+func TestRenderPrompt_MarketNil(t *testing.T) {
+	in := fixedInput()
+	in.Market = nil
+	rendered, _, err := RenderPrompt(in)
+	require.NoError(t, err)
+	assert.Contains(t, rendered, "市场数据暂不可用")
+}
+
+func TestRenderPrompt_NoHighVolWindows(t *testing.T) {
+	in := fixedInput()
+	in.HighVolWindows = nil
+	rendered, _, err := RenderPrompt(in)
+	require.NoError(t, err)
+	assert.Contains(t, rendered, "非已知高波动时段")
+}
+
+func TestRenderPrompt_HashStable(t *testing.T) {
+	in := fixedInput()
+	_, h1, _ := RenderPrompt(in)
+	_, h2, _ := RenderPrompt(in)
+	assert.Equal(t, h1, h2, "same input must produce same hash")
+}
+
+func TestRenderPrompt_HashChangesWhenInputChanges(t *testing.T) {
+	in := fixedInput()
+	_, h1, _ := RenderPrompt(in)
+	in.Signal.Price = decimal.RequireFromString("9999")
+	_, h2, _ := RenderPrompt(in)
+	assert.NotEqual(t, h1, h2)
+}
+
+func TestRenderPrompt_NilSignalReturnsError(t *testing.T) {
+	in := fixedInput()
+	in.Signal = nil
+	_, _, err := RenderPrompt(in)
+	require.Error(t, err)
+}
+
+func TestRenderPrompt_NilStrategyReturnsError(t *testing.T) {
+	in := fixedInput()
+	in.Strategy = nil
+	_, _, err := RenderPrompt(in)
+	require.Error(t, err)
+}
