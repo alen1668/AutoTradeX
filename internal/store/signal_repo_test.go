@@ -157,3 +157,49 @@ func TestSignalRepo_UpdateDecision_OnlyAcceptsPending(t *testing.T) {
 	assert.Equal(t, "accepted", row.Decision, "guard should prevent overwrite")
 	assert.Equal(t, "open_long", row.DecisionReason)
 }
+
+func TestSignalRepo_UpdateAgentResult(t *testing.T) {
+	pool := testPool(t)
+	repo := NewSignalRepo(pool)
+	ctx := context.Background()
+	id := insertSignalAt(t, pool, repo, "s1", "ETHUSDC", "long", time.Now(), "pending")
+
+	require.NoError(t, repo.UpdateAgentResult(ctx, pool, id, 75, "approve", true))
+	row, err := repo.GetByID(ctx, pool, id)
+	require.NoError(t, err)
+	require.NotNil(t, row.AgentScore)
+	assert.Equal(t, 75, *row.AgentScore)
+	require.NotNil(t, row.AgentDecision)
+	assert.Equal(t, "approve", *row.AgentDecision)
+	require.NotNil(t, row.AgentDryRun)
+	assert.True(t, *row.AgentDryRun)
+}
+
+func TestSignalRepo_UpdateAgentFailed(t *testing.T) {
+	pool := testPool(t)
+	repo := NewSignalRepo(pool)
+	ctx := context.Background()
+	id := insertSignalAt(t, pool, repo, "s1", "ETHUSDC", "long", time.Now(), "pending")
+
+	require.NoError(t, repo.UpdateAgentFailed(ctx, pool, id, false))
+	row, err := repo.GetByID(ctx, pool, id)
+	require.NoError(t, err)
+	assert.Nil(t, row.AgentScore, "failed must leave score NULL")
+	require.NotNil(t, row.AgentDecision)
+	assert.Equal(t, "failed", *row.AgentDecision)
+	require.NotNil(t, row.AgentDryRun)
+	assert.False(t, *row.AgentDryRun)
+}
+
+func TestSignalRepo_GetByID_AgentFieldsNullByDefault(t *testing.T) {
+	pool := testPool(t)
+	repo := NewSignalRepo(pool)
+	ctx := context.Background()
+	id := insertSignalAt(t, pool, repo, "s1", "ETHUSDC", "long", time.Now(), "pending")
+
+	row, err := repo.GetByID(ctx, pool, id)
+	require.NoError(t, err)
+	assert.Nil(t, row.AgentScore)
+	assert.Nil(t, row.AgentDecision)
+	assert.Nil(t, row.AgentDryRun)
+}

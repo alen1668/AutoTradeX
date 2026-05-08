@@ -25,6 +25,10 @@ type SignalRow struct {
 	Decision       string
 	DecisionReason string
 	TraceID        string
+	// Agent scorer fields. NULL when scorer not yet run on this signal.
+	AgentScore    *int
+	AgentDecision *string // approve | abandon | failed
+	AgentDryRun   *bool
 }
 
 type SignalRepo struct {
@@ -75,6 +79,28 @@ func (r *SignalRepo) UpdateDecision(ctx context.Context, q Querier, id int64, de
 		`UPDATE signals SET decision=$1, decision_reason=$2
 		  WHERE id=$3 AND decision='pending'`,
 		decision, nullableString(reason), id)
+	return err
+}
+
+// UpdateAgentResult records the agent scorer's verdict (score + decision +
+// dry_run snapshot) on a signal. Best-effort: callers should log warn on
+// error but not fail the trade — the agent layer is fail-open.
+func (r *SignalRepo) UpdateAgentResult(ctx context.Context, q Querier,
+	id int64, score int, decision string, dryRun bool,
+) error {
+	_, err := q.Exec(ctx,
+		`UPDATE signals SET agent_score=$1, agent_decision=$2, agent_dry_run=$3 WHERE id=$4`,
+		score, decision, dryRun, id)
+	return err
+}
+
+// UpdateAgentFailed records that the agent scorer's LLM call failed.
+// score stays NULL; agent_decision='failed' so the UI / queries can tell
+// "scorer ran but failed" apart from "scorer never ran (NULL)".
+func (r *SignalRepo) UpdateAgentFailed(ctx context.Context, q Querier, id int64, dryRun bool) error {
+	_, err := q.Exec(ctx,
+		`UPDATE signals SET agent_score=NULL, agent_decision='failed', agent_dry_run=$1 WHERE id=$2`,
+		dryRun, id)
 	return err
 }
 
@@ -132,10 +158,12 @@ func (r *SignalRepo) GetByID(ctx context.Context, q Querier, id int64) (*SignalR
 	var decisionReason *string
 	err := q.QueryRow(ctx,
 		`SELECT id, strategy_id, symbol, kind::text, signal_price, tv_timestamp_ms,
-                received_at, raw_payload, client_ip, decision, decision_reason, trace_id
+                received_at, raw_payload, client_ip, decision, decision_reason, trace_id,
+                agent_score, agent_decision, agent_dry_run
            FROM signals WHERE id=$1`, id,
 	).Scan(&s.ID, &s.StrategyID, &s.Symbol, &s.Kind, &s.SignalPrice, &s.TVTimestampMs,
-		&s.ReceivedAt, &rawPayload, &clientIP, &s.Decision, &decisionReason, &s.TraceID)
+		&s.ReceivedAt, &rawPayload, &clientIP, &s.Decision, &decisionReason, &s.TraceID,
+		&s.AgentScore, &s.AgentDecision, &s.AgentDryRun)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +180,8 @@ func (r *SignalRepo) GetByID(ctx context.Context, q Querier, id int64) (*SignalR
 func (r *SignalRepo) ListRecent(ctx context.Context, q Querier, limit int) ([]*SignalRow, error) {
 	rows, err := q.Query(ctx,
 		`SELECT id, strategy_id, symbol, kind::text, signal_price, tv_timestamp_ms,
-                received_at, raw_payload, client_ip, decision, decision_reason, trace_id
+                received_at, raw_payload, client_ip, decision, decision_reason, trace_id,
+                agent_score, agent_decision, agent_dry_run
            FROM signals
           ORDER BY received_at DESC
           LIMIT $1`, limit)
@@ -167,7 +196,8 @@ func (r *SignalRepo) ListRecent(ctx context.Context, q Querier, limit int) ([]*S
 		var clientIP *net.IP
 		var decisionReason *string
 		if err := rows.Scan(&s.ID, &s.StrategyID, &s.Symbol, &s.Kind, &s.SignalPrice, &s.TVTimestampMs,
-			&s.ReceivedAt, &rawPayload, &clientIP, &s.Decision, &decisionReason, &s.TraceID); err != nil {
+			&s.ReceivedAt, &rawPayload, &clientIP, &s.Decision, &decisionReason, &s.TraceID,
+			&s.AgentScore, &s.AgentDecision, &s.AgentDryRun); err != nil {
 			return nil, err
 		}
 		s.RawPayload = json.RawMessage(rawPayload)
@@ -200,7 +230,8 @@ func (r *SignalRepo) ListPage(ctx context.Context, q Querier, f SignalFilter, li
 	}
 	args = append(args, limit, offset)
 	listSQL := `SELECT id, strategy_id, symbol, kind::text, signal_price, tv_timestamp_ms,
-                received_at, raw_payload, client_ip, decision, decision_reason, trace_id
+                received_at, raw_payload, client_ip, decision, decision_reason, trace_id,
+                agent_score, agent_decision, agent_dry_run
            FROM signals` + where + `
           ORDER BY received_at DESC
           LIMIT $` + itoa(len(args)-1) + ` OFFSET $` + itoa(len(args))
@@ -216,7 +247,8 @@ func (r *SignalRepo) ListPage(ctx context.Context, q Querier, f SignalFilter, li
 		var clientIP *net.IP
 		var decisionReason *string
 		if err := rows.Scan(&s.ID, &s.StrategyID, &s.Symbol, &s.Kind, &s.SignalPrice, &s.TVTimestampMs,
-			&s.ReceivedAt, &rawPayload, &clientIP, &s.Decision, &decisionReason, &s.TraceID); err != nil {
+			&s.ReceivedAt, &rawPayload, &clientIP, &s.Decision, &decisionReason, &s.TraceID,
+			&s.AgentScore, &s.AgentDecision, &s.AgentDryRun); err != nil {
 			return nil, 0, err
 		}
 		s.RawPayload = json.RawMessage(rawPayload)
