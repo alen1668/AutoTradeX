@@ -207,7 +207,7 @@ func main() {
 	strategiesHandler := admin.NewStrategiesHandler(renderer, strategyRepo, pool, statusHandler)
 	positionsHandler := admin.NewPositionsHandler(renderer, pool, posRepo, strategyRepo, historyRepo, statusHandler)
 	signalsHandler := admin.NewSignalsHandler(renderer, pool, signalRepo, statusHandler)
-	systemHandler := admin.NewSystemHandler(systemRepo, pool, sess, renderer, statusHandler, cfg.BotMode)
+	systemHandler := admin.NewSystemHandler(systemRepo, settingsRepo, pool, sess, renderer, statusHandler, cfg.BotMode)
 	// Inject IncomeFetcher only when running against a real exchange (testnet
 	// or live). DryRun has no Binance side, so the stats page falls back to
 	// the DB position_history.
@@ -281,6 +281,8 @@ func main() {
 			r.Post("/system/arm", systemHandler.Arm)
 			r.Post("/system/disarm", systemHandler.Disarm)
 			r.Post("/system/breaker/reset", systemHandler.ResetBreaker)
+			r.Post("/system/agent-enable", systemHandler.EnableAgentScorer)
+			r.Post("/system/agent-disable", systemHandler.DisableAgentScorer)
 
 			// Stats
 			r.Get("/stats", statsHandler.Index)
