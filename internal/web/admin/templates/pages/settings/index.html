@@ -122,4 +122,69 @@
     <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">保存高级配置</button>
   </form>
 </div>
+
+<div class="bg-white shadow rounded p-6 mb-6">
+  <h2 class="text-lg font-semibold mb-2">AI 评分（实时生效）</h2>
+  <p class="text-xs text-red-600 mb-4">
+    ⚠️ 调用 LLM API 时，信号内容（策略、币种、历史交易、当前仓位、市场数据）会发送给所选 provider。请确认数据合规性。
+    启停开关在 <a class="underline" href="/system">/system</a> 页（启用前必须先在此处配置 LLM API key）。
+  </p>
+
+  <form method="POST" action="/settings/agent-scorer" class="space-y-4 max-w-xl">
+    <h3 class="font-medium">评分参数</h3>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-medium">模型</label>
+        <input name="model" value="{{ .Settings.AgentScorerModel }}" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono text-sm" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium">阈值（0-100，分数低于阈值则拒）</label>
+        <input name="threshold" type="number" min="0" max="100" value="{{ .Settings.AgentScorerThreshold }}" class="mt-1 w-full rounded border border-gray-300 px-3 py-2" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium">超时（ms）</label>
+        <input name="timeout_ms" type="number" min="500" max="60000" value="{{ .Settings.AgentScorerTimeoutMs }}" class="mt-1 w-full rounded border border-gray-300 px-3 py-2" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium">历史回溯笔数</label>
+        <input name="history_limit" type="number" min="1" max="100" value="{{ .Settings.AgentScorerHistoryLimit }}" class="mt-1 w-full rounded border border-gray-300 px-3 py-2" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium">失败模式</label>
+        <select name="fail_mode" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+          <option value="open" {{ if eq .Settings.AgentScorerFailMode "open" }}selected{{ end }}>open（LLM 失败 → 放行）</option>
+          <option value="closed" {{ if eq .Settings.AgentScorerFailMode "closed" }}selected{{ end }}>closed（LLM 失败 → 拒单）</option>
+        </select>
+      </div>
+      <div class="flex items-center mt-6">
+        <input id="dry_run" type="checkbox" name="dry_run" {{ if .Settings.AgentScorerDryRun }}checked{{ end }} class="mr-2" />
+        <label for="dry_run" class="text-sm">dry_run 观察模式（仅记录，不影响下单）</label>
+      </div>
+    </div>
+    <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">保存评分参数</button>
+  </form>
+
+  <hr class="my-6">
+
+  <form method="POST" action="/settings/llm-api" class="space-y-4 max-w-xl">
+    <h3 class="font-medium">LLM API</h3>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-medium">Provider</label>
+        <select name="provider" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+          <option value="anthropic" {{ if eq .Settings.LLMAPIProvider "anthropic" }}selected{{ end }}>anthropic</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium">Base URL（空=默认）</label>
+        <input name="base_url" value="{{ .Settings.LLMAPIBaseURL }}" placeholder="https://api.anthropic.com" class="mt-1 w-full rounded border border-gray-300 px-3 py-2" />
+      </div>
+      <div class="md:col-span-2">
+        <label class="block text-sm font-medium">API Key（留空保留旧值）</label>
+        <input name="api_key" type="password" placeholder="{{ if .Settings.LLMAPIKey }}••• 已配置 •••{{ else }}sk-... 未配置{{ end }}" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono" />
+      </div>
+    </div>
+    <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">保存 API 配置</button>
+  </form>
+</div>
 {{ end }}

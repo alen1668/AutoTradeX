@@ -296,6 +296,8 @@ func main() {
 			r.Post("/settings/binance", settingsHandler.SaveBinance)
 			r.Post("/settings/ip-whitelist", settingsHandler.SaveIPWhitelist)
 			r.Post("/settings/advanced", settingsHandler.SaveAdvanced)
+			r.Post("/settings/agent-scorer", settingsHandler.SaveAgentScorer)
+			r.Post("/settings/llm-api", settingsHandler.SaveLLMAPI)
 
 			// Status partial (HTMX hx-get for status bar auto-refresh)
 			r.Get("/_partials/status", statusHandler.Partial)

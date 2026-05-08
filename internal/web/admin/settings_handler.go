@@ -182,3 +182,76 @@ func (h *SettingsHandler) SaveAdvanced(w http.ResponseWriter, r *http.Request) {
 
 	http.Redirect(w, r, "/settings?saved=1", http.StatusSeeOther)
 }
+
+// SaveAgentScorer handles POST /settings/agent-scorer — updates agent scorer
+// parameters (model/threshold/timeout/history_limit/fail_mode/dry_run).
+// Does NOT touch the enabled flag — that path is /system/agent-{en,dis}able
+// so the empty-key precheck stays the only way to flip the flag on.
+func (h *SettingsHandler) SaveAgentScorer(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	threshold, err := strconv.Atoi(r.FormValue("threshold"))
+	if err != nil || threshold < 0 || threshold > 100 {
+		http.Error(w, "threshold must be 0..100", http.StatusBadRequest)
+		return
+	}
+	timeoutMs, err := strconv.Atoi(r.FormValue("timeout_ms"))
+	if err != nil || timeoutMs < 500 || timeoutMs > 60000 {
+		http.Error(w, "timeout_ms must be 500..60000", http.StatusBadRequest)
+		return
+	}
+	historyLimit, err := strconv.Atoi(r.FormValue("history_limit"))
+	if err != nil || historyLimit < 1 || historyLimit > 100 {
+		http.Error(w, "history_limit must be 1..100", http.StatusBadRequest)
+		return
+	}
+	failMode := r.FormValue("fail_mode")
+	if failMode != "open" && failMode != "closed" {
+		http.Error(w, "fail_mode must be open|closed", http.StatusBadRequest)
+		return
+	}
+	dryRun := r.FormValue("dry_run") == "on"
+	model := strings.TrimSpace(r.FormValue("model"))
+	if model == "" {
+		http.Error(w, "model required", http.StatusBadRequest)
+		return
+	}
+
+	cur, err := h.repo.Get(r.Context(), h.pool)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := h.repo.UpdateAgentScorer(r.Context(), h.pool,
+		cur.AgentScorerEnabled, // preserve — the enable toggle lives on /system
+		model, threshold, timeoutMs, historyLimit, failMode, dryRun,
+	); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/settings?saved=1", http.StatusSeeOther)
+}
+
+// SaveLLMAPI handles POST /settings/llm-api — updates LLM provider, base URL,
+// and api_key. An empty api_key preserves the existing value (so the form
+// password field can be left blank to keep the previous secret).
+func (h *SettingsHandler) SaveLLMAPI(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	provider := r.FormValue("provider")
+	if provider != "anthropic" {
+		http.Error(w, "unsupported provider (only anthropic in v1)", http.StatusBadRequest)
+		return
+	}
+	apiKey := r.FormValue("api_key")
+	baseURL := strings.TrimSpace(r.FormValue("base_url"))
+	if err := h.repo.UpdateLLMAPI(r.Context(), h.pool, provider, apiKey, baseURL); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/settings?saved=1", http.StatusSeeOther)
+}
