@@ -206,7 +206,8 @@ func main() {
 	authHandler := admin.NewAuthHandler(renderer, sess, userRepo, pool)
 	strategiesHandler := admin.NewStrategiesHandler(renderer, strategyRepo, pool, statusHandler)
 	positionsHandler := admin.NewPositionsHandler(renderer, pool, posRepo, strategyRepo, historyRepo, statusHandler)
-	signalsHandler := admin.NewSignalsHandler(renderer, pool, signalRepo, statusHandler)
+	agentEvalRepo := store.NewAgentEvalRepo(pool)
+	signalsHandler := admin.NewSignalsHandler(renderer, pool, signalRepo, agentEvalRepo, statusHandler)
 	systemHandler := admin.NewSystemHandler(systemRepo, settingsRepo, pool, sess, renderer, statusHandler, cfg.BotMode)
 	// Inject IncomeFetcher only when running against a real exchange (testnet
 	// or live). DryRun has no Binance side, so the stats page falls back to
@@ -275,6 +276,7 @@ func main() {
 
 			// Signals
 			r.Get("/signals", signalsHandler.Index)
+			r.Get("/signals/{id}", signalsHandler.Detail)
 
 			// System controls
 			r.Get("/system", systemHandler.Index)

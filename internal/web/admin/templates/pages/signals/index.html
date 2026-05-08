@@ -47,6 +47,7 @@
       <th class="px-3 py-2">方向</th>
       <th class="px-3 py-2">价格</th>
       <th class="px-3 py-2">决策</th>
+      <th class="px-3 py-2">Agent 分</th>
       <th class="px-3 py-2">原因</th>
       <th class="px-3 py-2">trace_id</th>
     </tr>
@@ -64,6 +65,7 @@
       <td class="px-3 py-2">{{ kindCN .Kind }}</td>
       <td class="px-3 py-2">{{ .SignalPrice }}</td>
       <td class="px-3 py-2">
+        <a href="/signals/{{ .ID }}" class="hover:underline">
         {{ if eq .Decision "accepted" }}
           <span class="text-green-700 font-medium">{{ decisionCN .Decision }}</span>
         {{ else if eq .Decision "duplicate" }}
@@ -81,12 +83,24 @@
         {{ else }}
           {{ decisionCN .Decision }}
         {{ end }}
+        </a>
+      </td>
+      <td class="px-3 py-2 text-xs">
+        {{ if .AgentScore }}
+          <span class="font-mono {{ if ge (derefInt .AgentScore) 60 }}text-green-700{{ else }}text-orange-600{{ end }}">{{ derefInt .AgentScore }}</span>
+          <span class="ml-1 text-gray-500">{{ agentDecisionCN (derefStr .AgentDecision) }}</span>
+          {{ if derefBool .AgentDryRun }}<span class="ml-1 text-yellow-600">[dry]</span>{{ end }}
+        {{ else if .AgentDecision }}
+          <span class="text-red-600">{{ agentDecisionCN (derefStr .AgentDecision) }}</span>
+        {{ else }}
+          <span class="text-gray-300">—</span>
+        {{ end }}
       </td>
       <td class="px-3 py-2 text-xs">{{ decisionReasonCN .DecisionReason }}</td>
       <td class="px-3 py-2 text-xs font-mono text-gray-500">{{ .TraceID }}</td>
     </tr>
     {{ else }}
-    <tr><td colspan="8" class="px-3 py-4 text-center text-gray-500">暂无信号</td></tr>
+    <tr><td colspan="9" class="px-3 py-4 text-center text-gray-500">暂无信号</td></tr>
     {{ end }}
   </tbody>
 </table>

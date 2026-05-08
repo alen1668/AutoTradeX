@@ -16,11 +16,37 @@ type SignalsHandler struct {
 	render        *Renderer
 	pool          *pgxpool.Pool
 	repo          *store.SignalRepo
+	evalRepo      *store.AgentEvalRepo
 	statusHandler *StatusHandler
 }
 
-func NewSignalsHandler(r *Renderer, pool *pgxpool.Pool, repo *store.SignalRepo, sh *StatusHandler) *SignalsHandler {
-	return &SignalsHandler{render: r, pool: pool, repo: repo, statusHandler: sh}
+func NewSignalsHandler(r *Renderer, pool *pgxpool.Pool, repo *store.SignalRepo, evalRepo *store.AgentEvalRepo, sh *StatusHandler) *SignalsHandler {
+	return &SignalsHandler{render: r, pool: pool, repo: repo, evalRepo: evalRepo, statusHandler: sh}
+}
+
+// Detail renders the signal-detail page (id from path), including the
+// agent evaluation card if one exists.
+func (h *SignalsHandler) Detail(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id <= 0 {
+		http.NotFound(w, r)
+		return
+	}
+	row, err := h.repo.GetByID(r.Context(), h.pool, id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var eval *store.AgentEvaluation
+	if h.evalRepo != nil {
+		eval, _ = h.evalRepo.LatestForSignal(r.Context(), h.pool, id)
+	}
+	data := h.statusHandler.WithStatus(r, map[string]any{
+		"Signal":     row,
+		"Evaluation": eval,
+	})
+	h.render.Render(w, http.StatusOK, "signals/detail", data)
 }
 
 // signalsPageData carries everything the template needs to render filters,

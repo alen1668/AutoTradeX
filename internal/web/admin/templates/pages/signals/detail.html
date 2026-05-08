@@ -1,0 +1,49 @@
+{{ define "content" }}
+<div class="mb-4 text-sm">
+  <a href="/signals" class="text-blue-600 hover:underline">← 返回信号列表</a>
+</div>
+<h1 class="text-2xl font-bold mb-6">信号 #{{ .Signal.ID }}</h1>
+
+<div class="bg-white shadow rounded p-6 mb-6">
+  <h2 class="text-lg font-semibold mb-4">基础信息</h2>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+    <div><div class="text-gray-500">策略</div><div class="font-mono">{{ .Signal.StrategyID }}</div></div>
+    <div><div class="text-gray-500">币种</div><div>{{ .Signal.Symbol }}</div></div>
+    <div><div class="text-gray-500">方向</div><div>{{ kindCN .Signal.Kind }}</div></div>
+    <div><div class="text-gray-500">价格</div><div class="font-mono">{{ .Signal.SignalPrice }}</div></div>
+    <div><div class="text-gray-500">接收时间(UTC)</div><div class="text-xs">{{ .Signal.ReceivedAt.UTC.Format "2006-01-02 15:04:05" }}</div></div>
+    <div><div class="text-gray-500">决策</div><div>{{ decisionCN .Signal.Decision }}</div></div>
+    <div><div class="text-gray-500">决策原因</div><div class="text-xs">{{ decisionReasonCN .Signal.DecisionReason }}</div></div>
+    <div><div class="text-gray-500">trace_id</div><div class="font-mono text-xs">{{ .Signal.TraceID }}</div></div>
+  </div>
+</div>
+
+<div class="bg-white shadow rounded p-6">
+  <h2 class="text-lg font-semibold mb-4">Agent 评估</h2>
+  {{ if .Evaluation }}
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-4">
+      <div><div class="text-gray-500">分数</div><div class="font-mono text-xl {{ if .Evaluation.Score }}{{ if ge (derefInt .Evaluation.Score) 60 }}text-green-700{{ else }}text-orange-600{{ end }}{{ else }}text-red-600{{ end }}">{{ if .Evaluation.Score }}{{ derefInt .Evaluation.Score }}{{ else }}—{{ end }}</div></div>
+      <div><div class="text-gray-500">决策</div><div class="font-medium">{{ agentDecisionCN .Evaluation.Decision }}</div></div>
+      <div><div class="text-gray-500">模型</div><div class="font-mono text-xs break-all">{{ .Evaluation.Model }}</div></div>
+      <div><div class="text-gray-500">耗时</div><div>{{ .Evaluation.LatencyMs }} ms</div></div>
+      <div><div class="text-gray-500">prompt hash</div><div class="font-mono text-xs">{{ .Evaluation.PromptHash }}</div></div>
+      <div><div class="text-gray-500">输入 token</div><div>{{ derefInt .Evaluation.TokenIn }}</div></div>
+      <div><div class="text-gray-500">输出 token</div><div>{{ derefInt .Evaluation.TokenOut }}</div></div>
+      <div><div class="text-gray-500">评估时间(UTC)</div><div class="text-xs">{{ .Evaluation.CreatedAt.UTC.Format "2006-01-02 15:04:05" }}</div></div>
+    </div>
+    <div class="text-sm bg-gray-50 p-3 rounded mb-3 whitespace-pre-wrap">{{ .Evaluation.Reasoning }}</div>
+    <details class="text-xs mb-2">
+      <summary class="cursor-pointer text-gray-500">查看完整 prompt</summary>
+      <pre class="mt-2 bg-gray-900 text-gray-100 p-3 rounded overflow-x-auto whitespace-pre-wrap">{{ .Evaluation.PromptText }}</pre>
+    </details>
+    {{ if .Evaluation.ResponseRaw }}
+    <details class="text-xs">
+      <summary class="cursor-pointer text-gray-500">LLM 原始响应</summary>
+      <pre class="mt-2 bg-gray-900 text-gray-100 p-3 rounded overflow-x-auto whitespace-pre-wrap">{{ derefStr .Evaluation.ResponseRaw }}</pre>
+    </details>
+    {{ end }}
+  {{ else }}
+    <div class="text-sm text-gray-500">该信号未经过 Agent 评估（scorer 未启用 / 评估发生在 scorer 启用前）。</div>
+  {{ end }}
+</div>
+{{ end }}

@@ -149,6 +149,35 @@ func funcMap() template.FuncMap {
 		"decisionReasonCN": decisionReasonCN,
 		"add":              func(a, b int) int { return a + b },
 		"sub":              func(a, b int) int { return a - b },
+		"agentDecisionCN": func(d string) string {
+			switch d {
+			case "approve":
+				return "通过"
+			case "abandon":
+				return "拒"
+			case "failed":
+				return "失败"
+			}
+			return d
+		},
+		"derefInt": func(p *int) int {
+			if p == nil {
+				return 0
+			}
+			return *p
+		},
+		"derefStr": func(p *string) string {
+			if p == nil {
+				return ""
+			}
+			return *p
+		},
+		"derefBool": func(p *bool) bool {
+			if p == nil {
+				return false
+			}
+			return *p
+		},
 	}
 }
 
