@@ -21,8 +21,8 @@ import (
 )
 
 type Config struct {
-	AccountEquityFallback decimal.Decimal                              // used in dry_run/testnet when no real equity reader
-	SecretLoader          func(ctx context.Context) (string, error)   // loads webhook secret from DB on each call
+	AccountEquityFallback decimal.Decimal                            // used in dry_run/testnet when no real equity reader
+	SecretLoader          func(ctx context.Context) (string, error) // loads webhook secret from DB on each call
 }
 
 type Service struct {
@@ -57,20 +57,30 @@ func NewService(cfg Config, pool *pgxpool.Pool,
 // IngestResult tells the caller what happened (for HTTP responses, tests).
 type IngestResult struct {
 	SignalID    int64
-	Decision    string // accepted | duplicate | risk_denied | invalid | disarmed
+	Decision    string // accepted | duplicate | risk_denied | invalid | disarmed | pending
 	RuleName    string // populated when decision == risk_denied
 	Reason      string
 	ActionTaken string // open_long | open_short | close | close_and_open_long | close_and_open_short | noop
 }
 
-// Ingest runs the full pipeline for a single webhook payload.
-func (s *Service) Ingest(ctx context.Context, body []byte, clientIP net.IP) (*IngestResult, error) {
-	// 1) Parse
+// ReceiveResult is what Receive returns to the HTTP layer. It's a strict
+// subset of IngestResult since the synchronous fast path can't yet know
+// the action taken.
+type ReceiveResult struct {
+	SignalID   int64
+	StrategyID string // populated only when Decision == "pending"
+	Decision   string // "pending" | "duplicate" | "invalid"
+	Reason     string
+}
+
+// Receive runs the fast path: parse, verify secret, idempotency check,
+// insert a 'pending' row, return. The dispatcher (caller) then submits
+// (StrategyID, SignalID) to a per-strategy worker that calls Process.
+func (s *Service) Receive(ctx context.Context, body []byte, clientIP net.IP) (*ReceiveResult, error) {
 	sig, err := sigpkg.Parse(body)
 	if err != nil {
-		// Record minimal signals row with decision=invalid
 		_ = s.recordInvalid(ctx, body, clientIP, err.Error())
-		return &IngestResult{Decision: "invalid", Reason: err.Error()}, nil
+		return &ReceiveResult{Decision: "invalid", Reason: err.Error()}, nil
 	}
 	secret, err := s.cfg.SecretLoader(ctx)
 	if err != nil {
@@ -78,73 +88,122 @@ func (s *Service) Ingest(ctx context.Context, body []byte, clientIP net.IP) (*In
 	}
 	if sig.Secret != secret {
 		_ = s.recordInvalid(ctx, body, clientIP, "secret mismatch")
-		return &IngestResult{Decision: "invalid", Reason: "secret mismatch"}, nil
+		return &ReceiveResult{Decision: "invalid", Reason: "secret mismatch"}, nil
 	}
-
-	// 2) Idempotency
 	dup, err := s.idempotency.Check(ctx, sig.StrategyID, sig.TVTimestampMs)
 	if err != nil {
 		return nil, fmt.Errorf("idempotency: %w", err)
 	}
 	if dup {
-		// Insert signals row anyway with decision='duplicate' for audit (will hit UNIQUE → existing row)
 		id, _, _ := s.signalRepo.Insert(ctx, s.pool, signalRowFrom(sig, clientIP, "duplicate", "lru hit"))
-		return &IngestResult{SignalID: id, Decision: "duplicate"}, nil
+		return &ReceiveResult{SignalID: id, Decision: "duplicate"}, nil
 	}
-
-	// 3) Insert pending signal
 	signalID, isDup, err := s.signalRepo.Insert(ctx, s.pool, signalRowFrom(sig, clientIP, "pending", ""))
 	if err != nil {
 		return nil, err
 	}
 	if isDup {
-		// LRU missed but DB has it (e.g. after restart) → record duplicate
-		return &IngestResult{SignalID: signalID, Decision: "duplicate"}, nil
+		return &ReceiveResult{SignalID: signalID, Decision: "duplicate"}, nil
 	}
+	return &ReceiveResult{SignalID: signalID, StrategyID: sig.StrategyID, Decision: "pending"}, nil
+}
 
-	// 4) Load context + run risk
-	loadCtx, err := loadAll(ctx, s.pool, s.pool, s.strategyRepo, s.posRepo, s.systemRepo, sig.StrategyID)
+// Process runs the slow path on an already-inserted pending signal. It's
+// idempotent: if the row is no longer 'pending' (already processed by a
+// concurrent worker, or finalized by an earlier run), it returns nil and
+// does nothing.
+func (s *Service) Process(ctx context.Context, signalID int64) error {
+	row, err := s.signalRepo.GetByID(ctx, s.pool, signalID)
 	if err != nil {
-		_ = s.signalRepo.UpdateDecision(ctx, s.pool, signalID, "invalid", "load context: "+err.Error())
-		return &IngestResult{SignalID: signalID, Decision: "invalid", Reason: err.Error()}, nil
+		return fmt.Errorf("load signal %d: %w", signalID, err)
 	}
-	if !loadCtx.Strategy.Enabled {
-		_ = s.signalRepo.UpdateDecision(ctx, s.pool, signalID, "risk_denied", "strategy disabled")
-		return &IngestResult{SignalID: signalID, Decision: "risk_denied", Reason: "strategy disabled"}, nil
+	if row.Decision != "pending" {
+		return nil
 	}
+	sig, err := sigpkg.Parse(row.RawPayload)
+	if err != nil {
+		_ = s.signalRepo.UpdateDecision(ctx, s.pool, signalID, "invalid", "re-parse: "+err.Error())
+		return nil
+	}
+	return s.processSignal(ctx, sig, signalID, row.ClientIP)
+}
 
-	state, err := s.systemRepo.Get(ctx, s.pool)
+// Ingest is a back-compat synchronous wrapper: Receive + Process in one
+// call. Used by tests and any caller that wants the old synchronous API.
+func (s *Service) Ingest(ctx context.Context, body []byte, clientIP net.IP) (*IngestResult, error) {
+	rec, err := s.Receive(ctx, body, clientIP)
 	if err != nil {
 		return nil, err
 	}
+	if rec.Decision != "pending" {
+		return &IngestResult{SignalID: rec.SignalID, Decision: rec.Decision, Reason: rec.Reason}, nil
+	}
+	if err := s.Process(ctx, rec.SignalID); err != nil {
+		return nil, err
+	}
+	row, err := s.signalRepo.GetByID(ctx, s.pool, rec.SignalID)
+	if err != nil {
+		return nil, err
+	}
+	out := &IngestResult{
+		SignalID: rec.SignalID,
+		Decision: row.Decision,
+		Reason:   row.DecisionReason,
+	}
+	// On accepted-success paths processSignal writes the action name into
+	// decision_reason ("open_long", "close", "close_and_open_short",
+	// "noop", etc.). Surface that as ActionTaken for callers that still
+	// rely on the old IngestResult shape.
+	if row.Decision == "accepted" {
+		out.ActionTaken = row.DecisionReason
+	}
+	return out, nil
+}
+
+// processSignal executes the risk pipeline + trade action for a parsed,
+// already-inserted pending signal. Splits out so Receive/Process can share
+// the body without Ingest needing to be the only entry point.
+func (s *Service) processSignal(ctx context.Context, sig *sigpkg.Signal, signalID int64, clientIP net.IP) error {
+	loadCtx, err := loadAll(ctx, s.pool, s.pool, s.strategyRepo, s.posRepo, s.systemRepo, sig.StrategyID)
+	if err != nil {
+		_ = s.signalRepo.UpdateDecision(ctx, s.pool, signalID, "invalid", "load context: "+err.Error())
+		return nil
+	}
+	if !loadCtx.Strategy.Enabled {
+		_ = s.signalRepo.UpdateDecision(ctx, s.pool, signalID, "risk_denied", "strategy disabled")
+		return nil
+	}
+	if loadCtx.StrategyArchived {
+		_ = s.signalRepo.UpdateDecision(ctx, s.pool, signalID, "risk_denied", "strategy archived")
+		return nil
+	}
+	state, err := s.systemRepo.Get(ctx, s.pool)
+	if err != nil {
+		return err
+	}
 	if !state.Armed {
 		_ = s.signalRepo.UpdateDecision(ctx, s.pool, signalID, "disarmed", "system not armed")
-		return &IngestResult{SignalID: signalID, Decision: "disarmed", Reason: "system not armed"}, nil
+		return nil
 	}
 
 	in := buildRiskInput(sig, loadCtx, s.cfg.AccountEquityFallback, clientIP)
 	dec, err := s.risk.Run(ctx, in)
 	if err != nil {
-		return nil, fmt.Errorf("risk pipeline: %w", err)
+		return fmt.Errorf("risk pipeline: %w", err)
 	}
 	if !dec.Allowed {
 		_ = s.signalRepo.UpdateDecision(ctx, s.pool, signalID, "risk_denied",
 			fmt.Sprintf("%s: %s", dec.RuleName, dec.Reason))
-		_ = s.notifier.Send(ctx, BuildDeniedMessage(sig.StrategyID, sig.Symbol, string(sig.Kind), dec.RuleName, dec.Reason))
-		return &IngestResult{
-			SignalID: signalID, Decision: "risk_denied",
-			RuleName: dec.RuleName, Reason: dec.Reason,
-		}, nil
+		_ = s.notifier.Send(ctx, notify.BuildDeniedMessage(sig.StrategyID, sig.Symbol, string(sig.Kind), dec.RuleName, dec.Reason))
+		return nil
 	}
 
-	// 5) Decide action
 	action := position.Decide(loadCtx.CurrentPosition, sig.Kind)
-	res := &IngestResult{SignalID: signalID, Decision: "accepted", ActionTaken: string(action)}
 
 	switch action {
 	case position.ActionNoOp:
 		_ = s.signalRepo.UpdateDecision(ctx, s.pool, signalID, "accepted", "noop")
-		return res, nil
+		return nil
 
 	case position.ActionOpenLong, position.ActionOpenShort:
 		side := position.SideLong
@@ -160,51 +219,66 @@ func (s *Service) Ingest(ctx context.Context, body []byte, clientIP net.IP) (*In
 		})
 		if err != nil {
 			_ = s.signalRepo.UpdateDecision(ctx, s.pool, signalID, "accepted", "open failed: "+err.Error())
-			_ = s.notifier.Send(ctx, BuildOpenFailedMessage(sig.StrategyID, sig.Symbol, string(sig.Kind), err.Error()))
-			return nil, err
+			_ = s.notifier.Send(ctx, notify.BuildOpenFailedMessage(sig.StrategyID, sig.Symbol, string(sig.Kind), err.Error()))
+			return err
 		}
 		_ = s.signalRepo.UpdateDecision(ctx, s.pool, signalID, "accepted", string(action))
-		_ = s.notifier.Send(ctx, BuildOpenMessage(loadCtx.Strategy, string(side), sig.Price, openRes.EntryFillPrice, openRes.Qty))
-		return res, nil
+		_ = s.notifier.Send(ctx, notify.BuildOpenMessage(
+			loadCtx.Strategy.ID, loadCtx.Strategy.Symbol, loadCtx.Strategy.Leverage,
+			string(side), sig.Price, openRes.EntryFillPrice, openRes.Qty))
+		return nil
 
 	case position.ActionClose:
 		if loadCtx.CurrentPosition == nil {
-			return res, nil
+			_ = s.signalRepo.UpdateDecision(ctx, s.pool, signalID, "accepted", "noop")
+			return nil
 		}
 		pos := loadCtx.CurrentPosition
 		closeRes, err := s.trade.ClosePosition(ctx, closeInputFromLoad(pos, sig, "signal"))
 		if err != nil {
 			_ = s.signalRepo.UpdateDecision(ctx, s.pool, signalID, "accepted", "close failed: "+err.Error())
-			_ = s.notifier.Send(ctx, BuildCloseFailedMessage(sig.StrategyID, sig.Symbol, err.Error()))
-			return nil, err
+			_ = s.notifier.Send(ctx, notify.BuildCloseFailedMessage(sig.StrategyID, sig.Symbol, err.Error()))
+			return err
 		}
 		_ = s.signalRepo.UpdateDecision(ctx, s.pool, signalID, "accepted", "close")
-		_ = s.notifier.Send(ctx, BuildCloseMessage(loadCtx.Strategy, string(pos.Side),
+		_ = s.notifier.Send(ctx, notify.BuildCloseMessage(
+			loadCtx.Strategy.ID, loadCtx.Strategy.Symbol, string(pos.Side), notify.CloseReasonSignal,
 			pos.EntryFillPrice, closeRes.ExitFillPrice, pos.Qty, closeRes.PnLUSDC))
-		return res, nil
+		return nil
 
 	case position.ActionCloseAndOpenLong, position.ActionCloseAndOpenShort:
-		// Close first, then open opposite.
 		if loadCtx.CurrentPosition != nil {
-			if _, err := s.trade.ClosePosition(ctx, closeInputFromLoad(loadCtx.CurrentPosition, sig, "signal")); err != nil {
-				return nil, err
+			pos := loadCtx.CurrentPosition
+			closeRes, err := s.trade.ClosePosition(ctx, closeInputFromLoad(pos, sig, "signal"))
+			if err != nil {
+				_ = s.signalRepo.UpdateDecision(ctx, s.pool, signalID, "accepted", "reverse close failed: "+err.Error())
+				_ = s.notifier.Send(ctx, notify.BuildCloseFailedMessage(sig.StrategyID, sig.Symbol, err.Error()))
+				return err
 			}
+			_ = s.notifier.Send(ctx, notify.BuildCloseMessage(
+				loadCtx.Strategy.ID, loadCtx.Strategy.Symbol, string(pos.Side), notify.CloseReasonSignal,
+				pos.EntryFillPrice, closeRes.ExitFillPrice, pos.Qty, closeRes.PnLUSDC))
 		}
 		side := position.SideLong
 		if action == position.ActionCloseAndOpenShort {
 			side = position.SideShort
 		}
-		if _, err := s.trade.OpenPosition(ctx, trade.OpenInput{
+		openRes, err := s.trade.OpenPosition(ctx, trade.OpenInput{
 			Strategy: loadCtx.Strategy, Side: side, SignalPrice: sig.Price,
 			SignalID: signalID, TraceID: sig.TraceID(),
-		}); err != nil {
-			return nil, err
+		})
+		if err != nil {
+			_ = s.signalRepo.UpdateDecision(ctx, s.pool, signalID, "accepted", "reverse open failed: "+err.Error())
+			_ = s.notifier.Send(ctx, notify.BuildOpenFailedMessage(sig.StrategyID, sig.Symbol, string(sig.Kind), err.Error()))
+			return err
 		}
 		_ = s.signalRepo.UpdateDecision(ctx, s.pool, signalID, "accepted", string(action))
-		_ = s.notifier.Send(ctx, notify.Message{Title: "Reverse " + string(action), Body: sig.StrategyID})
-		return res, nil
+		_ = s.notifier.Send(ctx, notify.BuildOpenMessage(
+			loadCtx.Strategy.ID, loadCtx.Strategy.Symbol, loadCtx.Strategy.Leverage,
+			string(side), sig.Price, openRes.EntryFillPrice, openRes.Qty))
+		return nil
 	}
-	return res, nil
+	return nil
 }
 
 func (s *Service) recordInvalid(ctx context.Context, body []byte, ip net.IP, reason string) error {

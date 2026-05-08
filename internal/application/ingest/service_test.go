@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 
@@ -61,13 +62,24 @@ func setupDB(t *testing.T) *pgxpool.Pool {
 	}))
 	t.Cleanup(p.Close)
 
-	mig, err := filepath.Abs("../../../migrations/0001_init.sql")
+	migDir, err := filepath.Abs("../../../migrations")
 	require.NoError(t, err)
-	data, err := os.ReadFile(mig)
+	entries, err := os.ReadDir(migDir)
 	require.NoError(t, err)
-	body := extractGooseUp(string(data))
-	_, err = p.Exec(context.Background(), body)
-	require.NoError(t, err)
+	var files []string
+	for _, e := range entries {
+		if filepath.Ext(e.Name()) == ".sql" {
+			files = append(files, filepath.Join(migDir, e.Name()))
+		}
+	}
+	sort.Strings(files)
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		require.NoError(t, err)
+		body := extractGooseUp(string(data))
+		_, err = p.Exec(context.Background(), body)
+		require.NoError(t, err, "applying %s", f)
+	}
 
 	// seed strategy + arm
 	_, err = p.Exec(context.Background(), `
@@ -179,3 +191,29 @@ func TestIngest_DisarmedSystemRejects(t *testing.T) {
 
 // silence unused
 var _ = json.RawMessage(nil)
+
+// TestService_ReceiveThenProcess_MatchesIngest exercises the new async-friendly
+// split: Receive returns immediately with a 'pending' signal, then Process
+// finalizes it. The combined effect should match what the synchronous Ingest
+// wrapper produces.
+func TestService_ReceiveThenProcess_MatchesIngest(t *testing.T) {
+	p := setupDB(t)
+	svc := newService(t, p)
+	ctx := context.Background()
+
+	body := []byte(`{"strategy_id":"s","symbol":"ETHUSDC","signal":"Long","price":"100","timestamp":1714723900000,"secret":"secret"}`)
+
+	rec, err := svc.Receive(ctx, body, net.IPv4(127, 0, 0, 1))
+	require.NoError(t, err)
+	require.Equal(t, "pending", rec.Decision)
+	require.Equal(t, "s", rec.StrategyID)
+	require.Greater(t, rec.SignalID, int64(0))
+
+	require.NoError(t, svc.Process(ctx, rec.SignalID))
+
+	signalRepo := store.NewSignalRepo(p)
+	row, err := signalRepo.GetByID(ctx, p, rec.SignalID)
+	require.NoError(t, err)
+	assert.NotEqual(t, "pending", row.Decision, "Process should finalize the decision")
+	assert.Equal(t, "accepted", row.Decision)
+}
