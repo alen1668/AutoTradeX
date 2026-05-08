@@ -153,29 +153,21 @@ func main() {
 		notifier = notify.NewMulti(notifiers...)
 	}
 
-	// ── trader factory (mode-based, uses DB creds with env fallback) ─────────
-	var trader tradepkg.Trader
-	switch cfg.BotMode {
-	case config.ModeDryRun:
-		trader = tradepkg.NewDryRunTrader()
-	case config.ModeTestnet, config.ModeLive:
-		if dbSettings.BinanceAPIKey == "" || dbSettings.BinanceAPISecret == "" {
-			logger.Fatal().Msgf("BOT_MODE=%s but Binance API key/secret not set; configure via /settings or env", cfg.BotMode)
-		}
-		// Override yaml tuning with DB values when set (DB takes precedence after first bootstrap)
-		binCfg := cfg.Binance
-		if dbSettings.BinanceRecvWindowMs > 0 {
-			binCfg.RecvWindowMs = dbSettings.BinanceRecvWindowMs
-		}
-		if dbSettings.BinanceOrderTimeoutMs > 0 {
-			binCfg.OrderTimeoutMs = dbSettings.BinanceOrderTimeoutMs
-		}
-		bt := binanceinfra.New(binCfg, dbSettings.BinanceAPIKey, dbSettings.BinanceAPISecret, cfg.BotMode, logger)
-		trader = bt
-		_ = bt // assigned below after tradeSvc is created
-	default:
-		trader = tradepkg.NewDryRunTrader()
+	// ── trader factory ────────────────────────────────────────────────────────
+	// BOT_MODE is testnet|live; both routes go through Binance (testnet uses
+	// the testnet endpoint with paper-trading USDT). API key + secret are
+	// mandatory — there is no built-in offline mode.
+	if dbSettings.BinanceAPIKey == "" || dbSettings.BinanceAPISecret == "" {
+		logger.Fatal().Msgf("BOT_MODE=%s but Binance API key/secret not set; configure via /settings or env", cfg.BotMode)
 	}
+	binCfg := cfg.Binance
+	if dbSettings.BinanceRecvWindowMs > 0 {
+		binCfg.RecvWindowMs = dbSettings.BinanceRecvWindowMs
+	}
+	if dbSettings.BinanceOrderTimeoutMs > 0 {
+		binCfg.OrderTimeoutMs = dbSettings.BinanceOrderTimeoutMs
+	}
+	var trader tradepkg.Trader = binanceinfra.New(binCfg, dbSettings.BinanceAPIKey, dbSettings.BinanceAPISecret, cfg.BotMode, logger)
 
 	// ── application services ─────────────────────────────────────────────────
 	tradeSvc := trade.NewService(pool, orderRepo, posRepo, historyRepo, trader)
@@ -255,9 +247,9 @@ func main() {
 	positionsHandler := admin.NewPositionsHandler(renderer, pool, posRepo, strategyRepo, historyRepo, statusHandler)
 	signalsHandler := admin.NewSignalsHandler(renderer, pool, signalRepo, agentEvalRepo, statusHandler)
 	systemHandler := admin.NewSystemHandler(systemRepo, settingsRepo, pool, sess, renderer, statusHandler, cfg.BotMode)
-	// Inject IncomeFetcher only when running against a real exchange (testnet
-	// or live). DryRun has no Binance side, so the stats page falls back to
-	// the DB position_history.
+	// IncomeFetcher comes from the Binance trader when present (testnet
+	// and live both go through Binance, so the type-assert always succeeds
+	// — kept here for safety in case a future test wires a fake trader).
 	var incomeFetcher admin.IncomeFetcher
 	if bt, ok := trader.(*binanceinfra.Trader); ok {
 		incomeFetcher = bt

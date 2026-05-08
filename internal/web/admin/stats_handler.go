@@ -39,7 +39,7 @@ type StatsHandler struct {
 	render  *Renderer
 	pool    *pgxpool.Pool
 	statusH *StatusHandler
-	income  IncomeFetcher // nil in dry_run mode
+	income  IncomeFetcher // injected only when a Binance trader is wired
 	cache   *incomeCache
 }
 

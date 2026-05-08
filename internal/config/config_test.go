@@ -23,7 +23,7 @@ func TestLoad_RejectsMalformedYAML(t *testing.T) {
 	dir := t.TempDir()
 	yamlPath := filepath.Join(dir, "bad.yaml")
 	require.NoError(t, os.WriteFile(yamlPath, []byte("risk:\n  max_total_leverage: [not, a, number\n"), 0o644))
-	t.Setenv("BOT_MODE", "dry_run")
+	t.Setenv("BOT_MODE", "testnet")
 	t.Setenv("DATABASE_URL", "postgres://x")
 	_, err := Load(yamlPath)
 	require.Error(t, err)
@@ -39,7 +39,7 @@ func TestLoad_RejectsInvalidBotMode(t *testing.T) {
 }
 
 func TestLoad_AcceptsAllValidModes(t *testing.T) {
-	for _, m := range []string{"dry_run", "testnet", "live"} {
+	for _, m := range []string{"testnet", "live"} {
 		t.Run(m, func(t *testing.T) {
 			t.Setenv("BOT_MODE", m)
 			t.Setenv("DATABASE_URL", "postgres://x")
@@ -71,7 +71,7 @@ notifier:
   telegram: { enabled: false, bot_token: "", chat_id: "" }
 `), 0o644))
 
-	t.Setenv("BOT_MODE", "dry_run")
+	t.Setenv("BOT_MODE", "testnet")
 	t.Setenv("DATABASE_URL", "postgres://x")
 	t.Setenv("WEBHOOK_SECRET", "s")
 	t.Setenv("SESSION_SECRET", "s")

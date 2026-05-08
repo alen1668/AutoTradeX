@@ -17,7 +17,7 @@ type IncomeRecord struct {
 }
 
 // IncomeFetcher fetches income events from the exchange for a time window.
-// BinanceTrader implements it; in dry_run mode no fetcher is wired.
+// BinanceTrader implements it.
 type IncomeFetcher interface {
 	Income(ctx context.Context, since, until time.Time) ([]IncomeRecord, error)
 }

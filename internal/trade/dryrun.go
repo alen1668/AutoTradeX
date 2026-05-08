@@ -12,8 +12,9 @@ import (
 var errNotFound = errors.New("order not found")
 
 // DryRunTrader simulates instant fills at the request's ReferencePrice for
-// MARKET orders, and never triggers stop orders. Used in dry_run mode and
-// in unit/integration tests of the application layer.
+// MARKET orders, and never triggers stop orders. Used by unit and
+// integration tests of the application layer (BOT_MODE itself only
+// supports testnet|live in production).
 type DryRunTrader struct {
 	mu     sync.RWMutex
 	orders map[orderKey]*OrderResult // keyed by (symbol, clientOrderID)
@@ -35,7 +36,7 @@ func (d *DryRunTrader) Place(_ context.Context, req OrderRequest) (*OrderResult,
 		res.FilledQty = req.Qty
 		res.AvgFillPrice = req.ReferencePrice
 	} else {
-		// stop / take-profit: parked, never triggered in dry_run
+		// stop / take-profit: parked, never triggered by the simulator
 		res.Status = OrderStatusSubmitted
 	}
 	d.mu.Lock()
@@ -65,7 +66,7 @@ func (d *DryRunTrader) GetPositionRisk(_ context.Context, symbol string) (*Posit
 	return &Position{Symbol: symbol}, nil
 }
 
-// StepSize returns the default step size used in dry_run mode.
+// StepSize returns the default step size used by the simulated trader.
 func (d *DryRunTrader) StepSize(_ context.Context, _ string) (decimal.Decimal, error) {
 	return decimal.NewFromFloat(0.001), nil
 }

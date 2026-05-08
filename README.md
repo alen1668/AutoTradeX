@@ -10,7 +10,7 @@
 2. [需要先注册的账号](#需要先注册的账号)
 3. [快速开始（5 分钟跑通）](#快速开始5-分钟跑通)
 4. [给完全新手的 TradingView 配置教程](#给完全新手的-tradingview-配置教程)
-5. [运行模式（dry_run / testnet / live）](#运行模式)
+5. [运行模式（testnet / live）](#运行模式)
 6. [实盘（live）运行手册](#实盘live运行手册)
 7. [运维操作](#运维操作)
 8. [配置参考](#配置参考)
@@ -27,7 +27,7 @@
 - 自动在币安永续合约下单，**支持双重止损**（限价止损 + 市价兜底）+ 止盈
 - **多策略并行**：同一个币种可同时跑多个策略，虚拟仓位记账，共用 1 个 API Key
 - 4 项风控：单策略最大未平仓金额、全局总杠杆上限、日亏熔断、IP 白名单
-- 三档安全模式：dry_run（不下真单）/ testnet（币安测试网）/ live（实盘）
+- 两档运行模式：testnet（币安测试网，推荐先跑）/ live（实盘）
 - 重启自动 disarm，必须手动点「启动交易」才会接单
 - 飞书 + Telegram 双渠道告警
 - Web 后台改配置实时生效（部分需重启，UI 有标注）
@@ -147,7 +147,7 @@ $EDITOR .env
 `.env` 里**必须改**的（其他可以先用默认）：
 
 ```bash
-BOT_MODE=dry_run                                      # 第一次跑用 dry_run，不会下真单
+BOT_MODE=testnet                                      # 第一次跑用 testnet，币安测试网假币
 WEBHOOK_SECRET=随便起个长一点的密码-比如至少20位         # 等下要在 TradingView 里填的密钥
 SESSION_SECRET=please-change-me-please-change-me      # 至少 32 字节，浏览器登录 cookie 加密用
 ```
@@ -163,7 +163,7 @@ make build
 ```
 ================================
         tvbot starting          
-  mode: dry_run
+  mode: testnet
   armed: false (run /system/arm to enable)
 ================================
 {"level":"info","message":"http listening","addr":"0.0.0.0:8080"}
@@ -185,7 +185,7 @@ make build
 
 > 如果看到「启动 bot 后端」的命令需要环境变量太多，可以这样一行起来：
 > ```bash
-> BOT_MODE=dry_run \
+> BOT_MODE=testnet \
 > DATABASE_URL=postgres://tvbot:tvbot@localhost:5432/tvbot?sslmode=disable \
 > WEBHOOK_SECRET=$(grep WEBHOOK_SECRET .env | cut -d= -f2) \
 > SESSION_SECRET=$(grep SESSION_SECRET .env | cut -d= -f2) \
@@ -339,7 +339,7 @@ https://random-words-xxxx-yyyy.trycloudflare.com/webhook/tv
 
 ⚠️ **末尾的 `/webhook/tv` 路径不要漏！**
 
-> 💡 **Webhook URL 是 TradingView 付费功能**：免费账号没有 webhook，至少需要 Pro 套餐（最便宜约 $14.95/月）。不想付费可以先用 dry_run 模式 + curl 手动测试（见下面 FAQ）。
+> 💡 **Webhook URL 是 TradingView 付费功能**：免费账号没有 webhook，至少需要 Pro 套餐（最便宜约 $14.95/月）。不想付费可以先在 testnet 模式 + curl 手动测试（见下面 FAQ）。
 
 #### 3.5 「设置 (Settings)」tab → 消息（Message）
 
@@ -399,11 +399,10 @@ https://random-words-xxxx-yyyy.trycloudflare.com/webhook/tv
 
 | 模式 | 是否真下单 | 用途 |
 |------|----------|------|
-| `dry_run` | ❌ 完全模拟 | 开发期，验证链路通畅 |
-| `testnet` | ✅ 但是测试币 | 币安测试网，验证下单逻辑 |
+| `testnet` | ✅ 但是测试币 | 币安测试网，验证下单逻辑（推荐先跑这个） |
 | `live` | ✅ 真钱 | 生产 |
 
-切换模式：改 `.env` 的 `BOT_MODE` → 重启 bot。
+切换模式：改 `.env` 的 `BOT_MODE` → 重启 bot。两种模式都需要 Binance API key/secret（测试网与实盘的 key 是分开签发的，不能混用）。
 
 **testnet 怎么玩**（强烈推荐先在这里跑一遍）：
 
@@ -736,7 +735,7 @@ grep -E '"event":"order_filled|stop_loss_triggered|breaker_tripped"' /tmp/tvbot.
 
 | 变量 | 必须？ | 说明 |
 |------|------|------|
-| `BOT_MODE` | ✅ | `dry_run` / `testnet` / `live` |
+| `BOT_MODE` | ✅ | `testnet` / `live` |
 | `DATABASE_URL` | ✅ | Postgres 连接串 |
 | `SESSION_SECRET` | ✅ | 浏览器 cookie 加密，至少 32 字节 |
 | `HTTP_LISTEN` | | 默认 `0.0.0.0:8080` |
@@ -904,7 +903,7 @@ A: /signals 页面那条信号的 `reason` 字段会写：
 | 收到但 `decision=invalid, reason=signal required` | TV 消息不是 JSON 格式 | 检查 alert message 是否原样复制了上面的 JSON 模板 |
 | 收到但 `decision=risk_denied, reason=ip ... not in whitelist` | tunnel 转发的源 IP 不在白名单 | /settings 清空白名单，或加上 cloudflare 出口 IP |
 | 收到但 `decision=disarmed` | 系统未启动 | /system 点「启动交易」 |
-| 信号正常但实际没下单（dry_run） | 你在 dry_run 模式 | 这是正常的，dry_run 只记录到 DB 不调交易所 |
+| 信号收到但 testnet 没下单 | 一般是 API key 没勾「Enable Futures」或 testnet key 配错 | /settings 重新粘贴，注意 testnet key 与实盘 key 是分开签发的 |
 
 ### Q: 我能多人共用一个 bot 实例吗？
 

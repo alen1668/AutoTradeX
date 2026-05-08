@@ -15,9 +15,9 @@ type SignalLookup interface {
 
 // Checker is a 2-layer idempotency check: LRU first (fast), DB second (truth).
 //
-// Pass repo=nil to use LRU-only mode (e.g., in unit tests or dry_run scenarios
-// where no DB is wired). In production, always pass a real SignalRepo wired
-// to a *pgxpool.Pool.
+// Pass repo=nil to use LRU-only mode (e.g., in unit tests where no DB is
+// wired). In production, always pass a real SignalRepo wired to a
+// *pgxpool.Pool.
 type Checker struct {
 	lru  *lruCache
 	repo SignalLookup

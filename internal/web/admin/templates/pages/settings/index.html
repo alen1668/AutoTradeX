@@ -69,7 +69,7 @@
 <div class="bg-white shadow rounded p-6 mb-6">
   <h2 class="text-lg font-semibold mb-4">币安 API（修改后需重启）</h2>
   <p class="text-xs text-gray-500 mb-4">
-    用于 testnet 和 live 模式调用 Binance USDT-M 永续合约 API。dry_run 模式不需要。
+    调用 Binance USDT-M 永续合约 API 必需。testnet / live 两种模式都需要（key 是分开签发的，不能混用）。
     建议账号开启 IP 白名单 + 仅授交易权限不授提币权限。
   </p>
   <form method="POST" action="/settings/binance" class="space-y-4 max-w-xl">

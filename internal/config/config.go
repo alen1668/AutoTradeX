@@ -23,13 +23,12 @@ import (
 type BotMode string
 
 const (
-	ModeDryRun  BotMode = "dry_run"
 	ModeTestnet BotMode = "testnet"
 	ModeLive    BotMode = "live"
 )
 
 func (m BotMode) Valid() bool {
-	return m == ModeDryRun || m == ModeTestnet || m == ModeLive
+	return m == ModeTestnet || m == ModeLive
 }
 
 type Config struct {
@@ -94,7 +93,7 @@ func Load(yamlPath string) (*Config, error) {
 		return nil, fmt.Errorf("env: %w", err)
 	}
 	if !cfg.BotMode.Valid() {
-		return nil, fmt.Errorf("BOT_MODE invalid: %q (allowed: dry_run, testnet, live)", cfg.BotMode)
+		return nil, fmt.Errorf("BOT_MODE invalid: %q (allowed: testnet, live)", cfg.BotMode)
 	}
 	if data, err := os.ReadFile(yamlPath); err == nil {
 		if err := yaml.Unmarshal(data, &cfg); err != nil {
