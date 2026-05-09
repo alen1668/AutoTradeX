@@ -4,6 +4,7 @@
 /tvbot
 /backfill-vp
 /notifytest
+/agent-eval
 *.exe
 *.test
 *.out
