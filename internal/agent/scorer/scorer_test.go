@@ -184,3 +184,42 @@ func TestFactory_WithSignalBindsParams(t *testing.T) {
 	assert.NotNil(t, sc.health, "health tracker must be the factory's shared instance")
 	assert.Same(t, f.health, sc.health)
 }
+
+func TestLLMScorer_AcceptsMarkdownFencedJSON(t *testing.T) {
+	// Real-world Anthropic responses commonly wrap "raw" JSON in ```json ... ```
+	// fences even when the prompt explicitly forbids it. The scorer must extract
+	// the inner object and parse cleanly, NOT report failure.
+	llm := &fakeLLM{
+		text: "```json\n{\"score\":75,\"decision\":\"approve\",\"reasoning\":\"x\"}\n```",
+	}
+	repo := &fakeEvalRepo{}
+	s := makeScorer(llm, repo, 1)
+	res, err := s.Score(context.Background(), fixedInput())
+	require.NoError(t, err)
+	assert.Equal(t, 75, res.Score, "must parse through markdown fence")
+	assert.Equal(t, "approve", res.Decision)
+}
+
+func TestLLMScorer_AcceptsJSONWithPreamble(t *testing.T) {
+	// Some replies have a sentence of preamble before the JSON.
+	llm := &fakeLLM{
+		text: `Sure, here is my analysis: {"score":42,"decision":"abandon","reasoning":"weak"}`,
+	}
+	repo := &fakeEvalRepo{}
+	s := makeScorer(llm, repo, 1)
+	res, _ := s.Score(context.Background(), fixedInput())
+	assert.Equal(t, 42, res.Score)
+	assert.Equal(t, "abandon", res.Decision)
+}
+
+func TestExtractJSON(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{`{"score":1}`, `{"score":1}`},
+		{"```json\n{\"score\":1}\n```", `{"score":1}`},
+		{"some preface text {\"a\":1} trailing", `{"a":1}`},
+		{`no json here`, `no json here`}, // unchanged → caller's json.Unmarshal will fail and trigger 'failed' decision
+	}
+	for _, c := range cases {
+		assert.Equal(t, c.want, extractJSON(c.in), "input: %q", c.in)
+	}
+}

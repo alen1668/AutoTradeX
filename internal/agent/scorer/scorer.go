@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -99,7 +100,7 @@ func (s *LLMScorer) Score(ctx context.Context, in ScoreInput) (ScoreResult, erro
 	}
 
 	var parsed llmJSON
-	parseErr := json.Unmarshal([]byte(resp.Text), &parsed)
+	parseErr := json.Unmarshal([]byte(extractJSON(resp.Text)), &parsed)
 	if parseErr != nil || parsed.Score == nil || parsed.Decision == nil || parsed.Reasoning == nil {
 		s.health.RecordFailure()
 		why := "non-JSON or missing fields"
@@ -208,4 +209,22 @@ func stringDeref(p *string) string {
 		return ""
 	}
 	return *p
+}
+
+// extractJSON pulls the first {...} JSON object out of an LLM response.
+// Even when the prompt asks for raw JSON, models routinely wrap the
+// answer in ```json ... ``` markdown fences or add a sentence of
+// preamble. Rather than fight the model with stricter prompts (which
+// degrades reasoning quality), we accept any envelope and pull the
+// outermost {} pair. Returns the input unchanged if no { found.
+func extractJSON(s string) string {
+	start := strings.Index(s, "{")
+	if start < 0 {
+		return s
+	}
+	end := strings.LastIndex(s, "}")
+	if end < start {
+		return s
+	}
+	return s[start : end+1]
 }
