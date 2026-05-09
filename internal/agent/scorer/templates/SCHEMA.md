@@ -90,7 +90,7 @@
 
 ### 高波动时段
 
-`{{.Input.HighVolWindows}}` — `[]string`，可能为空 slice。当前可能值: `us_data_release_window` / `us_market_open_window` / `monday_gap_window`。
+`{{.Input.HighVolWindows}}` — `[]string`，可能为空 slice。当前可能值: `us_data_release_window` / `us_market_open_window` / `weekend_gap_window`。
 
 ## 允许使用的 template action
 
