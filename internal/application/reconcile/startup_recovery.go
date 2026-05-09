@@ -161,15 +161,19 @@ func (r *Recovery) detectGhostPositions(ctx context.Context, activeSymbols map[s
 		r.log.Warn().Err(err).Msg("recovery: AllPositions query failed; skipping ghost check")
 		return
 	}
+	ghosts := 0
 	for _, p := range positions {
 		if activeSymbols[p.Symbol] {
 			continue
 		}
+		ghosts++
 		r.log.Error().Str("symbol", p.Symbol).
 			Str("qty", p.Qty.String()).Str("entry_price", p.EntryPrice.String()).
 			Msg("recovery: GHOST position on exchange — no active VP in DB")
 		_ = r.notifier.Send(ctx, notify.BuildGhostPositionMessage(p.Symbol, p.Qty.String(), p.EntryPrice.String()))
 	}
+	r.log.Info().Int("exchange_positions", len(positions)).Int("ghosts", ghosts).
+		Msg("recovery: ghost check done")
 }
 
 // closeData is what we need to record an offline close into position_history.
