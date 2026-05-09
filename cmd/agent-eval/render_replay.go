@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -23,6 +24,7 @@ type ReplayReport struct {
 	Rows       []ReplayRow `json:"rows"`
 }
 
+// fmtNaN formats v with layout, returning "—" when v is NaN.
 func fmtNaN(v float64, layout string) string {
 	if math.IsNaN(v) {
 		return "—"
@@ -30,6 +32,7 @@ func fmtNaN(v float64, layout string) string {
 	return fmt.Sprintf(layout, v)
 }
 
+// renderReplayText writes the human-readable terminal report.
 func renderReplayText(w io.Writer, r ReplayReport) error {
 	fmt.Fprintf(w, "Replay 报告: %s vs 生产 prompt(v1)\n", r.PromptFile)
 	fmt.Fprintf(w, "样本: since=%s, 共 %d 条评估过的信号 (%d 条有 PnL)\n\n",
@@ -83,6 +86,7 @@ func renderReplayText(w io.Writer, r ReplayReport) error {
 	return nil
 }
 
+// flipLabel returns a short label for an old→new decision pair: "—" when unchanged, "A→B" / "B→A" for the two flip directions.
 func flipLabel(old, new string) string {
 	if old == new {
 		return "—"
@@ -96,12 +100,14 @@ func flipLabel(old, new string) string {
 	return "?"
 }
 
+// renderReplayJSON writes the machine-readable JSON report.
 func renderReplayJSON(w io.Writer, r ReplayReport) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(r)
 }
 
+// renderReplayHTML writes a self-contained HTML page with summary + per-signal collapsible reasoning.
 func renderReplayHTML(w io.Writer, r ReplayReport) error {
 	fmt.Fprintln(w, `<!doctype html><html><head><meta charset="utf-8"><title>Replay 报告</title>`)
 	fmt.Fprintln(w, `<style>body{font-family:system-ui;margin:2em;max-width:1100px}`)
@@ -112,9 +118,11 @@ func renderReplayHTML(w io.Writer, r ReplayReport) error {
 		html.EscapeString(r.Since), r.SampleSize, r.WithPnL)
 
 	fmt.Fprintln(w, `<h2>概要</h2><pre>`)
-	if err := renderReplayText(w, r); err != nil {
+	var textBuf bytes.Buffer
+	if err := renderReplayText(&textBuf, r); err != nil {
 		return err
 	}
+	fmt.Fprint(w, html.EscapeString(textBuf.String()))
 	fmt.Fprintln(w, `</pre>`)
 
 	fmt.Fprintln(w, `<h2>详细 reasoning (折叠)</h2>`)
