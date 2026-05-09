@@ -340,11 +340,11 @@ SELECT llm_api_key, agent_scorer_model, llm_api_base_url, agent_scorer_timeout_m
   FROM system_state LIMIT 1`)
 	if err := row.Scan(&apiKey, &model, &baseURL, &timeoutMs); err != nil {
 		fmt.Fprintf(os.Stderr, "warn: load llm config: %v (using defaults)\n", err)
-		model = "claude-haiku-4-5-20251001"
+		model = scorer.DefaultModel
 		timeoutMs = 5000
 	}
 	if model == "" {
-		model = "claude-haiku-4-5-20251001"
+		model = scorer.DefaultModel
 	}
 	if timeoutMs <= 0 {
 		timeoutMs = 5000

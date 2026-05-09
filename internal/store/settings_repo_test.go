@@ -145,7 +145,7 @@ func TestSettingsRepo_AgentDefaults(t *testing.T) {
 	s, err := repo.Get(context.Background(), pool)
 	require.NoError(t, err)
 	assert.False(t, s.AgentScorerEnabled)
-	assert.Equal(t, "claude-haiku-4-5-20251001", s.AgentScorerModel)
+	assert.Equal(t, "claude-sonnet-4-6", s.AgentScorerModel)
 	assert.Equal(t, 60, s.AgentScorerThreshold)
 	assert.Equal(t, 5000, s.AgentScorerTimeoutMs)
 	assert.Equal(t, 20, s.AgentScorerHistoryLimit)

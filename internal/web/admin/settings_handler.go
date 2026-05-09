@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
 
+	"github.com/lizhaojie/tvbot/internal/agent/scorer"
 	"github.com/lizhaojie/tvbot/internal/risk"
 	"github.com/lizhaojie/tvbot/internal/store"
 )
@@ -35,6 +36,7 @@ func (h *SettingsHandler) Index(w http.ResponseWriter, r *http.Request) {
 	data := h.statusH.WithStatus(r, map[string]any{
 		"Settings": s,
 		"Saved":    r.URL.Query().Get("saved") == "1",
+		"Models":   scorer.SupportedModels,
 	})
 	h.render.Render(w, http.StatusOK, "settings/index", data)
 }
@@ -216,6 +218,10 @@ func (h *SettingsHandler) SaveAgentScorer(w http.ResponseWriter, r *http.Request
 	model := strings.TrimSpace(r.FormValue("model"))
 	if model == "" {
 		http.Error(w, "model required", http.StatusBadRequest)
+		return
+	}
+	if !scorer.IsSupportedModel(model) {
+		http.Error(w, "unsupported model", http.StatusBadRequest)
 		return
 	}
 

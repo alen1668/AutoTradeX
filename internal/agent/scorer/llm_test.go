@@ -25,7 +25,7 @@ func TestAnthropicClient_Success(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
             "id": "msg_01",
-            "model": "claude-haiku-4-5-20251001",
+            "model": "` + DefaultModel + `",
             "content": [{"type":"text","text":"{\"score\":75,\"decision\":\"approve\",\"reasoning\":\"近期表现稳定\"}"}],
             "usage": {"input_tokens": 1000, "output_tokens": 50}
         }`))
@@ -34,7 +34,7 @@ func TestAnthropicClient_Success(t *testing.T) {
 
 	c := NewAnthropicClient("sk-test-key", srv.URL)
 	resp, err := c.Complete(context.Background(), CompleteRequest{
-		Model:     "claude-haiku-4-5-20251001",
+		Model:     DefaultModel,
 		Prompt:    "test prompt",
 		MaxTokens: 256,
 	})
@@ -45,7 +45,7 @@ func TestAnthropicClient_Success(t *testing.T) {
 	assert.Equal(t, "sk-test-key", gotAPIKey)
 	assert.Equal(t, "2023-06-01", gotAnthropicVersion)
 	assert.Contains(t, gotBody, "test prompt")
-	assert.Contains(t, gotBody, "claude-haiku-4-5-20251001")
+	assert.Contains(t, gotBody, DefaultModel)
 }
 
 func TestAnthropicClient_5xxReturnsError(t *testing.T) {

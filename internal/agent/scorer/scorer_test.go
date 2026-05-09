@@ -48,7 +48,7 @@ func makeScorer(llm LLMClient, repo *fakeEvalRepo, signalID int64) *LLMScorer {
 	return &LLMScorer{
 		client: llm, repo: repo, pool: nil, log: discardLog(),
 		health:    NewHealthTracker(10 * time.Minute),
-		model:     "claude-haiku-4-5-20251001",
+		model:     DefaultModel,
 		timeoutMs: 5000,
 		signalID:  signalID,
 	}

@@ -135,7 +135,11 @@
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div>
         <label class="block text-sm font-medium">模型</label>
-        <input name="model" value="{{ .Settings.AgentScorerModel }}" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono text-sm" />
+        <select name="model" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono text-sm">
+          {{ range .Models }}
+          <option value="{{ .ID }}" {{ if eq $.Settings.AgentScorerModel .ID }}selected{{ end }}>{{ .Label }} ({{ .ID }})</option>
+          {{ end }}
+        </select>
       </div>
       <div>
         <label class="block text-sm font-medium">阈值（0-100，分数低于阈值则拒）</label>

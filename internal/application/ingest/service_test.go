@@ -267,7 +267,7 @@ func setAgentSettings(t *testing.T, p *pgxpool.Pool, enabled, dryRun bool, thres
 	t.Helper()
 	repo := store.NewSettingsRepo(p)
 	require.NoError(t, repo.UpdateAgentScorer(context.Background(), p,
-		enabled, "claude-haiku-4-5-20251001", threshold, 5000, 20, failMode, dryRun))
+		enabled, scorer.DefaultModel, threshold, 5000, 20, failMode, dryRun))
 }
 
 func countVirtualPositions(t *testing.T, p *pgxpool.Pool) int {
