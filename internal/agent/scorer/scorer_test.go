@@ -220,6 +220,6 @@ func TestExtractJSON(t *testing.T) {
 		{`no json here`, `no json here`}, // unchanged → caller's json.Unmarshal will fail and trigger 'failed' decision
 	}
 	for _, c := range cases {
-		assert.Equal(t, c.want, extractJSON(c.in), "input: %q", c.in)
+		assert.Equal(t, c.want, ExtractJSON(c.in), "input: %q", c.in)
 	}
 }
