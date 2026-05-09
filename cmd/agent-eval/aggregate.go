@@ -1,9 +1,43 @@
 package main
 
 import (
+	"encoding/json"
 	"math"
 	"sort"
 )
+
+// nilIfNaN returns nil when v is NaN (so encoding/json emits null instead
+// of failing). Bucket / FlipMatrix / ReplayReport use it via MarshalJSON.
+func nilIfNaN(v float64) any {
+	if math.IsNaN(v) {
+		return nil
+	}
+	return v
+}
+
+// MarshalJSON for Bucket — turns NaN AvgPnL/WinPct into JSON null.
+func (b Bucket) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Label   string `json:"label"`
+		Signals int    `json:"signals"`
+		Trades  int    `json:"trades"`
+		AvgPnL  any    `json:"avg_pnl"`
+		WinPct  any    `json:"win_pct"`
+	}{b.Label, b.Signals, b.Trades, nilIfNaN(b.AvgPnL), nilIfNaN(b.WinPct)})
+}
+
+// MarshalJSON for FlipMatrix — turns NaN flip-quality avg PnL into JSON null.
+func (m FlipMatrix) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		ApproveToApprove       int `json:"approve_to_approve"`
+		ApproveToAbandon       int `json:"approve_to_abandon"`
+		AbandonToApprove       int `json:"abandon_to_approve"`
+		AbandonToAbandon       int `json:"abandon_to_abandon"`
+		ApproveToAbandonAvgPnL any `json:"approve_to_abandon_avg_pnl"`
+		AbandonToApproveAvgPnL any `json:"abandon_to_approve_avg_pnl"`
+	}{m.ApproveToApprove, m.ApproveToAbandon, m.AbandonToApprove, m.AbandonToAbandon,
+		nilIfNaN(m.ApproveToAbandonAvgPnL), nilIfNaN(m.AbandonToApproveAvgPnL)})
+}
 
 // ReplayRow is the per-signal record produced by replayOne. Aggregation
 // functions operate on slices of these. PnLUSDC is nil when the signal had

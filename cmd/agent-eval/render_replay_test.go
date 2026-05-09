@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 
@@ -70,4 +71,35 @@ func TestRenderHTML_ContainsKeyMarkers(t *testing.T) {
 	assert.True(t, strings.Contains(out, "<html") || strings.Contains(out, "<body"))
 	assert.Contains(t, out, "prompts/v2.tmpl")
 	assert.Contains(t, out, "1247")
+}
+
+// TestRenderJSON_NaNBecomesNull guards against the encoding/json default
+// rejection of NaN floats. ReplayReport / Bucket / FlipMatrix have custom
+// MarshalJSON that converts NaN → null so small-sample reports
+// (Spearman NaN, empty buckets) still serialize.
+func TestRenderJSON_NaNBecomesNull(t *testing.T) {
+	r := ReplayReport{
+		Since:      "1h",
+		PromptFile: "x.tmpl",
+		V1Spearman: math.NaN(),
+		V2Spearman: math.NaN(),
+		V1Buckets: []Bucket{
+			{Label: "0-20", AvgPnL: math.NaN(), WinPct: math.NaN()},
+		},
+		V2Buckets: []Bucket{
+			{Label: "0-20", AvgPnL: math.NaN(), WinPct: math.NaN()},
+		},
+		Flips: FlipMatrix{
+			ApproveToAbandonAvgPnL: math.NaN(),
+			AbandonToApproveAvgPnL: math.NaN(),
+		},
+	}
+	var buf bytes.Buffer
+	require.NoError(t, renderReplayJSON(&buf, r),
+		"NaN floats must serialize without error")
+	out := buf.String()
+	assert.Contains(t, out, `"v1_spearman": null`)
+	assert.Contains(t, out, `"v2_spearman": null`)
+	assert.Contains(t, out, `"avg_pnl": null`)
+	assert.Contains(t, out, `"approve_to_abandon_avg_pnl": null`)
 }

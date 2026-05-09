@@ -24,6 +24,28 @@ type ReplayReport struct {
 	Rows       []ReplayRow `json:"rows"`
 }
 
+// MarshalJSON for ReplayReport — turns NaN Spearman values into JSON null
+// (they're NaN when sample size < 2). Bucket and FlipMatrix have their own
+// MarshalJSON for their NaN fields.
+func (r ReplayReport) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Since      string      `json:"since"`
+		PromptFile string      `json:"prompt_file"`
+		SampleSize int         `json:"sample_size"`
+		WithPnL    int         `json:"with_pnl"`
+		V1Spearman any         `json:"v1_spearman"`
+		V2Spearman any         `json:"v2_spearman"`
+		V1Buckets  []Bucket    `json:"v1_buckets"`
+		V2Buckets  []Bucket    `json:"v2_buckets"`
+		Flips      FlipMatrix  `json:"flips"`
+		Rows       []ReplayRow `json:"rows"`
+	}{
+		r.Since, r.PromptFile, r.SampleSize, r.WithPnL,
+		nilIfNaN(r.V1Spearman), nilIfNaN(r.V2Spearman),
+		r.V1Buckets, r.V2Buckets, r.Flips, r.Rows,
+	})
+}
+
 // fmtNaN formats v with layout, returning "—" when v is NaN.
 func fmtNaN(v float64, layout string) string {
 	if math.IsNaN(v) {
