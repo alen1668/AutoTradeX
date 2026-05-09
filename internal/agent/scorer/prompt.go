@@ -30,16 +30,18 @@ type signalView struct {
 	Price  string
 }
 
-// RenderPrompt renders the v1 prompt and returns sha256(prompt)[:8] hex
-// as the version hash. Any change in template or input changes the hash —
-// the agent_evaluations table indexes (model, prompt_hash) so evaluating
-// "v3 prompt vs v2" is a single GROUP BY.
-func RenderPrompt(in ScoreInput) (text string, hash string, err error) {
+// RenderPromptWithTemplate renders the given template against a promptCtx
+// constructed from in. The hash is sha256(rendered)[:8] hex.
+//
+// The replay tool (cmd/agent-eval) passes a template parsed from an external
+// file; the production scorer passes the embedded compiledTemplate. Both
+// share this wrapping logic so they see the same set of available fields.
+func RenderPromptWithTemplate(in ScoreInput, tmpl *template.Template) (text string, hash string, err error) {
 	if in.Signal == nil {
-		return "", "", fmt.Errorf("RenderPrompt: nil Signal")
+		return "", "", fmt.Errorf("RenderPromptWithTemplate: nil Signal")
 	}
 	if in.Strategy == nil {
-		return "", "", fmt.Errorf("RenderPrompt: nil Strategy")
+		return "", "", fmt.Errorf("RenderPromptWithTemplate: nil Strategy")
 	}
 	sigTime := time.UnixMilli(in.Signal.TVTimestampMs).UTC().Format("2006-01-02 15:04:05")
 	ctx := promptCtx{
@@ -53,10 +55,15 @@ func RenderPrompt(in ScoreInput) (text string, hash string, err error) {
 		SignalTimeUTC: sigTime,
 	}
 	var buf bytes.Buffer
-	if err := compiledTemplate.Execute(&buf, ctx); err != nil {
+	if err := tmpl.Execute(&buf, ctx); err != nil {
 		return "", "", fmt.Errorf("execute template: %w", err)
 	}
 	rendered := buf.String()
 	sum := sha256.Sum256([]byte(rendered))
 	return rendered, hex.EncodeToString(sum[:4]), nil
+}
+
+// RenderPrompt renders the embedded v1 prompt. Used by the production scorer.
+func RenderPrompt(in ScoreInput) (text string, hash string, err error) {
+	return RenderPromptWithTemplate(in, compiledTemplate)
 }

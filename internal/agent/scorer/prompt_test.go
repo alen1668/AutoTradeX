@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"text/template"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -147,5 +148,26 @@ func TestRenderPrompt_NilStrategyReturnsError(t *testing.T) {
 	in := fixedInput()
 	in.Strategy = nil
 	_, _, err := RenderPrompt(in)
+	require.Error(t, err)
+}
+
+func TestRenderPromptWithTemplate_CustomTmpl(t *testing.T) {
+	in := fixedInput()
+	tmpl := template.Must(template.New("custom").Parse(
+		"S={{.StrategyID}} P={{.Signal.Price}} TS={{.SignalTimeUTC}} N={{len .Input.SymbolHistory}}",
+	))
+	rendered, hash, err := RenderPromptWithTemplate(in, tmpl)
+	require.NoError(t, err)
+	assert.Equal(t,
+		"S=supertrend-eth P=2300.5 TS=2024-05-03 08:05:04 N=1",
+		rendered)
+	require.Len(t, hash, 8)
+}
+
+func TestRenderPromptWithTemplate_NilSignal(t *testing.T) {
+	in := fixedInput()
+	in.Signal = nil
+	tmpl := template.Must(template.New("x").Parse("noop"))
+	_, _, err := RenderPromptWithTemplate(in, tmpl)
 	require.Error(t, err)
 }
