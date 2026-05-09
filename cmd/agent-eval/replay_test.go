@@ -111,3 +111,26 @@ func TestReplayOne_TemplateExecError(t *testing.T) {
 	row := replayOne(context.Background(), c, tmpl, llm, "claude-haiku-4-5", 5000)
 	assert.NotEmpty(t, row.Error)
 }
+
+func TestReplayOne_BadDecision(t *testing.T) {
+	c := sampleCase(t)
+	tmpl := template.Must(template.New("v2").Parse("noop"))
+	llm := &fakeLLM{resp: scorer.CompleteResponse{
+		Text: `{"score":50,"decision":"maybe","reasoning":"x"}`,
+	}}
+	row := replayOne(context.Background(), c, tmpl, llm, "claude-haiku-4-5", 5000)
+	assert.NotEmpty(t, row.Error)
+	assert.Contains(t, row.Error, "decision")
+}
+
+func TestReplayOne_MissingFields(t *testing.T) {
+	c := sampleCase(t)
+	tmpl := template.Must(template.New("v2").Parse("noop"))
+	// Valid JSON but missing required fields (no "score" / "decision" / "reasoning").
+	llm := &fakeLLM{resp: scorer.CompleteResponse{
+		Text: `{"foo":"bar"}`,
+	}}
+	row := replayOne(context.Background(), c, tmpl, llm, "claude-haiku-4-5", 5000)
+	assert.NotEmpty(t, row.Error)
+	assert.Contains(t, row.Error, "missing fields")
+}
