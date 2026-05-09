@@ -1,0 +1,51 @@
+{
+  "symbol_history": [
+    {
+      "OpenedAt": "2024-05-01T12:00:00Z",
+      "Symbol": "ETHUSDC",
+      "Direction": "long",
+      "EntryPrice": "2280",
+      "ExitPrice": "2310",
+      "PnLUSD": "30",
+      "DurationMin": 45,
+      "ExitReason": "tp"
+    }
+  ],
+  "strategy_history": [
+    {
+      "OpenedAt": "2024-05-02T10:00:00Z",
+      "Symbol": "BTCUSDC",
+      "Direction": "short",
+      "EntryPrice": "60000",
+      "ExitPrice": "59500",
+      "PnLUSD": "50",
+      "DurationMin": 90,
+      "ExitReason": "tp"
+    }
+  ],
+  "portfolio": {
+    "TotalNotionalUSD": "5000",
+    "DailyPnLUSD": "12.50",
+    "OpenPositions": [
+      {
+        "StrategyID": "supertrend-btc",
+        "Symbol": "BTCUSDC",
+        "Direction": "long",
+        "EntryPrice": "60100",
+        "NotionalUSD": "3000",
+        "UnrealizedPnL": "5"
+      }
+    ]
+  },
+  "market": {
+    "Symbol": "ETHUSDC",
+    "Last24hHigh": "2350",
+    "Last24hLow": "2250",
+    "Last24hChangePct": "1.25",
+    "Last1hChangePct": "0.30",
+    "PriceVs24hRange": "0.55",
+    "Volatility24h": "0.018",
+    "KlineLookback1h": ["2280", "2295", "2300", "2300.5"]
+  },
+  "high_vol_windows": ["us_market_open_window"]
+}
