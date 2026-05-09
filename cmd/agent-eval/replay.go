@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"text/template"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
 
 	"github.com/lizhaojie/tvbot/internal/agent/scorer"
@@ -131,4 +133,132 @@ func replayOne(
 	row.NewDecision = *parsed.Decision
 	row.NewReason = *parsed.Reasoning
 	return row
+}
+
+// loadReplayCases pulls every signal that's been agent-evaluated since
+// `cutoff`, with its old score/decision/reasoning, history snapshot, and
+// (if the trade closed) realized PnL.
+func loadReplayCases(ctx context.Context, pool *pgxpool.Pool, cutoff time.Time, max int) ([]ReplayCase, error) {
+	limit := max
+	if limit <= 0 {
+		limit = 1_000_000 // effectively unbounded
+	}
+	rows, err := pool.Query(ctx, `
+SELECT s.id, s.strategy_id, s.symbol, s.kind::text, s.signal_price, s.tv_timestamp_ms,
+       s.agent_score, s.agent_decision,
+       e.history_json, e.reasoning,
+       ph.pnl_usdc
+  FROM signals s
+  JOIN agent_evaluations e ON e.signal_id = s.id
+  LEFT JOIN virtual_positions vp ON vp.entry_signal_id = s.id
+  LEFT JOIN position_history ph
+         ON ph.strategy_id = vp.strategy_id
+        AND ph.symbol = vp.symbol
+        AND ph.opened_at = vp.opened_at
+ WHERE s.agent_score IS NOT NULL
+   AND s.received_at >= $1
+ ORDER BY s.received_at DESC
+ LIMIT $2`, cutoff, limit)
+	if err != nil {
+		return nil, fmt.Errorf("load replay cases: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ReplayCase
+	for rows.Next() {
+		var c ReplayCase
+		var oldScore *int
+		var oldDecision *string
+		var pnl *decimal.Decimal
+		if err := rows.Scan(
+			&c.SignalID, &c.StrategyID, &c.Symbol, &c.Kind,
+			&c.SignalPrice, &c.TVTimestampMs,
+			&oldScore, &oldDecision,
+			&c.HistoryJSON, &c.OldReason, &pnl,
+		); err != nil {
+			return nil, fmt.Errorf("scan replay case: %w", err)
+		}
+		if oldScore != nil {
+			c.OldScore = *oldScore
+		}
+		if oldDecision != nil {
+			c.OldDecision = *oldDecision
+		}
+		if pnl != nil {
+			f, _ := pnl.Float64()
+			c.PnLUSDC = &f
+			c.HasPnL = true
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// runReplay drives the full replay pipeline: load cases, render each one
+// against tmpl, aggregate, return ReplayReport. Concurrency is clamped
+// to [1, 10].
+func runReplay(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	tmpl *template.Template,
+	llm scorer.LLMClient,
+	model string,
+	timeoutMs int,
+	cutoff time.Time,
+	since string,
+	promptFile string,
+	max, concurrency int,
+) (ReplayReport, error) {
+	if concurrency < 1 {
+		concurrency = 1
+	}
+	if concurrency > 10 {
+		concurrency = 10
+	}
+
+	cases, err := loadReplayCases(ctx, pool, cutoff, max)
+	if err != nil {
+		return ReplayReport{}, err
+	}
+
+	rows := make([]ReplayRow, len(cases))
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+	for i, c := range cases {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, c ReplayCase) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			rows[i] = replayOne(ctx, c, tmpl, llm, model, timeoutMs)
+		}(i, c)
+	}
+	wg.Wait()
+
+	// Sample / has-PnL counts.
+	withPnL := 0
+	for _, r := range rows {
+		if r.Error == "" && r.HasPnL {
+			withPnL++
+		}
+	}
+
+	// Spearman: separate (score, pnl) pairs for v1 and v2.
+	v1Scores, v1Pnls := extractScoresAndPnLs(rows, func(r ReplayRow) int { return r.OldScore })
+	v2Scores, v2Pnls := extractScoresAndPnLs(rows, func(r ReplayRow) int { return r.NewScore })
+
+	report := ReplayReport{
+		Since:      since,
+		PromptFile: promptFile,
+		SampleSize: len(rows),
+		WithPnL:    withPnL,
+		V1Spearman: spearman(v1Scores, v1Pnls),
+		V2Spearman: spearman(v2Scores, v2Pnls),
+		V1Buckets:  bucketize(rows, func(r ReplayRow) int { return r.OldScore }),
+		V2Buckets:  bucketize(rows, func(r ReplayRow) int { return r.NewScore }),
+		Flips:      flipMatrix(rows),
+		Rows:       append([]ReplayRow{}, rows...),
+	}
+	sortByDeltaScoreDesc(report.Rows)
+	return report, nil
 }
