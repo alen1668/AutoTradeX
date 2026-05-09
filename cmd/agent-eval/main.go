@@ -7,7 +7,7 @@
 //
 //	go run ./cmd/agent-eval --since=3d
 //	go run ./cmd/agent-eval --since=24h --report=/tmp/eval.html
-//	DATABASE_URL=postgres://... go run ./cmd/agent-eval --since=7d
+//	go run ./cmd/agent-eval --replay --prompt-file=./prompts/v2.tmpl --since=7d
 package main
 
 import (
@@ -23,18 +23,31 @@ import (
 )
 
 type bucket struct {
-	Label    string
-	Signals  int
-	Trades   int
-	SumPnL   float64
-	Wins     int
+	Label   string
+	Signals int
+	Trades  int
+	SumPnL  float64
+	Wins    int
 }
 
 func main() {
 	var since string
 	var reportPath string
+	var replay bool
+	var promptFile string
+	var jsonPath string
+	var maxN int
+	var concurrency int
+	var modelOverride string
+
 	flag.StringVar(&since, "since", "3d", "lookback window: 3d / 24h / 7d / 1h ...")
 	flag.StringVar(&reportPath, "report", "", "if set, write an HTML copy of the report to this path")
+	flag.BoolVar(&replay, "replay", false, "switch to replay mode (re-run external prompt over historical signals)")
+	flag.StringVar(&promptFile, "prompt-file", "", "[replay] external prompt template file")
+	flag.StringVar(&jsonPath, "json", "", "[replay] write machine-readable JSON to this path")
+	flag.IntVar(&maxN, "max", 0, "[replay] cap on signals to replay (0 = unlimited)")
+	flag.IntVar(&concurrency, "concurrency", 5, "[replay] concurrent LLM calls (clamped to [1,10])")
+	flag.StringVar(&modelOverride, "model", "", "[replay] override LLM model (default: same as production)")
 	flag.Parse()
 
 	ctx := context.Background()
@@ -53,8 +66,23 @@ func main() {
 		fail("parse since: %v", err)
 	}
 
-	// Score-bucket × realized PnL. Match agent score → matched virtual
-	// position → close history (same join as the /stats page).
+	if replay {
+		runReplayMode(ctx, pool, since, cutoff, promptFile, maxN, concurrency, reportPath, jsonPath, modelOverride)
+		return
+	}
+
+	runEvalMode(ctx, pool, since, reportPath)
+}
+
+// runEvalMode is the original "look at production grayscale" report —
+// score-bucket × realized PnL plus LLM call health. Body is moved here
+// from main() unchanged in behavior, parameterized only for testing.
+func runEvalMode(ctx context.Context, pool *pgxpool.Pool, since string, reportPath string) {
+	cutoff, err := parseSince(since)
+	if err != nil {
+		fail("parse since: %v", err)
+	}
+
 	rows, err := pool.Query(ctx, `
 SELECT
   CASE
@@ -105,7 +133,6 @@ WHERE s.agent_score IS NOT NULL AND s.received_at >= $1`, cutoff)
 		}
 	}
 
-	// LLM call health for the same window.
 	var llmTotal, llmFailed int
 	var sumLatency int
 	var sumCost float64

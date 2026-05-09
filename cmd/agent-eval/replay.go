@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sync"
 	"text/template"
 	"time"
@@ -261,4 +262,92 @@ func runReplay(
 	}
 	sortByDeltaScoreDesc(report.Rows)
 	return report, nil
+}
+
+// runReplayMode is invoked from main when --replay is given.
+func runReplayMode(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	since string,
+	cutoff time.Time,
+	promptFile string,
+	maxN, concurrency int,
+	reportPath, jsonPath, modelOverride string,
+) {
+	if promptFile == "" {
+		fail("--replay requires --prompt-file")
+	}
+
+	tmplBytes, err := os.ReadFile(promptFile)
+	if err != nil {
+		fail("read prompt file: %v", err)
+	}
+	tmpl, err := template.New("user").Parse(string(tmplBytes))
+	if err != nil {
+		fail("parse prompt template: %v", err)
+	}
+
+	apiKey, model, baseURL, timeoutMs := loadLLMConfig(ctx, pool)
+	if modelOverride != "" {
+		model = modelOverride
+	}
+	if env := os.Getenv("LLM_API_KEY"); env != "" {
+		apiKey = env
+	}
+	if apiKey == "" {
+		fail("no LLM API key (set LLM_API_KEY env or system_state.llm_api_key)")
+	}
+	llm := scorer.NewAnthropicClient(apiKey, baseURL)
+
+	report, err := runReplay(ctx, pool, tmpl, llm, model, timeoutMs,
+		cutoff, since, promptFile, maxN, concurrency)
+	if err != nil {
+		fail("run replay: %v", err)
+	}
+
+	if err := renderReplayText(os.Stdout, report); err != nil {
+		fail("render text: %v", err)
+	}
+	if reportPath != "" {
+		f, err := os.Create(reportPath)
+		if err != nil {
+			fail("create report: %v", err)
+		}
+		defer f.Close()
+		if err := renderReplayHTML(f, report); err != nil {
+			fail("render html: %v", err)
+		}
+		fmt.Fprintf(os.Stderr, "html report written to %s\n", reportPath)
+	}
+	if jsonPath != "" {
+		f, err := os.Create(jsonPath)
+		if err != nil {
+			fail("create json: %v", err)
+		}
+		defer f.Close()
+		if err := renderReplayJSON(f, report); err != nil {
+			fail("render json: %v", err)
+		}
+		fmt.Fprintf(os.Stderr, "json report written to %s\n", jsonPath)
+	}
+}
+
+// loadLLMConfig pulls (api_key, model, base_url, timeout_ms) from
+// system_state. Falls back to library defaults if columns are NULL/empty.
+func loadLLMConfig(ctx context.Context, pool *pgxpool.Pool) (apiKey, model, baseURL string, timeoutMs int) {
+	row := pool.QueryRow(ctx, `
+SELECT llm_api_key, agent_scorer_model, llm_api_base_url, agent_scorer_timeout_ms
+  FROM system_state LIMIT 1`)
+	if err := row.Scan(&apiKey, &model, &baseURL, &timeoutMs); err != nil {
+		fmt.Fprintf(os.Stderr, "warn: load llm config: %v (using defaults)\n", err)
+		model = "claude-haiku-4-5-20251001"
+		timeoutMs = 5000
+	}
+	if model == "" {
+		model = "claude-haiku-4-5-20251001"
+	}
+	if timeoutMs <= 0 {
+		timeoutMs = 5000
+	}
+	return
 }
