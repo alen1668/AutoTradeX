@@ -171,3 +171,11 @@ func TestRenderPromptWithTemplate_NilSignal(t *testing.T) {
 	_, _, err := RenderPromptWithTemplate(in, tmpl)
 	require.Error(t, err)
 }
+
+func TestRenderPromptWithTemplate_NilStrategy(t *testing.T) {
+	in := fixedInput()
+	in.Strategy = nil
+	tmpl := template.Must(template.New("x").Parse("noop"))
+	_, _, err := RenderPromptWithTemplate(in, tmpl)
+	require.Error(t, err)
+}
