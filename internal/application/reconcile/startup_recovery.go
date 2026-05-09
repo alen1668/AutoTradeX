@@ -88,7 +88,8 @@ func (r *Recovery) RunPeriodic(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// reconcileAllActive runs reconcileOne against every currently-open VP.
+// reconcileAllActive runs reconcileOne against every currently-open VP,
+// then scans for "ghost" positions (qty on exchange, no matching VP).
 // Shared by startup Run and the runtime heartbeat (RunPeriodic).
 func (r *Recovery) reconcileAllActive(ctx context.Context) error {
 	rows, err := r.pool.Query(ctx, `
@@ -98,6 +99,7 @@ SELECT id FROM virtual_positions
 		return fmt.Errorf("list active VPs: %w", err)
 	}
 	var ids []int64
+	activeSymbols := map[string]bool{}
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
@@ -108,6 +110,22 @@ SELECT id FROM virtual_positions
 	}
 	rows.Close()
 
+	// Build the set of symbols that DB *thinks* are active (qty != 0).
+	// We need this for the ghost check below — anything on the exchange
+	// for a symbol not in this set is a ghost.
+	if len(ids) > 0 {
+		symRows, err := r.pool.Query(ctx,
+			`SELECT DISTINCT symbol FROM virtual_positions WHERE id = ANY($1)`, ids)
+		if err == nil {
+			for symRows.Next() {
+				var s string
+				_ = symRows.Scan(&s)
+				activeSymbols[s] = true
+			}
+			symRows.Close()
+		}
+	}
+
 	r.log.Info().Int("count", len(ids)).Msg("recovery: active VPs to reconcile")
 
 	for _, id := range ids {
@@ -116,7 +134,42 @@ SELECT id FROM virtual_positions
 			_ = r.notifier.Send(ctx, notify.BuildRecoveryAnomalyMessage(id, err.Error()))
 		}
 	}
+
+	r.detectGhostPositions(ctx, activeSymbols)
 	return nil
+}
+
+// AllPositionsLister is the optional capability the position heartbeat
+// uses to find ghost positions. BinanceTrader implements it; DryRunTrader
+// does not (and ghost detection is a no-op for the simulator).
+type AllPositionsLister interface {
+	AllPositions(ctx context.Context) ([]trade.Position, error)
+}
+
+// detectGhostPositions queries the exchange for ALL non-zero positions
+// and flags any whose symbol has no active VP in DB. Pure observation:
+// just logs + alerts. Auto-creating a VP for a ghost is unsafe (we don't
+// know which strategy or what the original signal was), so we leave that
+// to the operator.
+func (r *Recovery) detectGhostPositions(ctx context.Context, activeSymbols map[string]bool) {
+	lister, ok := r.trader.(AllPositionsLister)
+	if !ok {
+		return // simulator / fake trader: skip
+	}
+	positions, err := lister.AllPositions(ctx)
+	if err != nil {
+		r.log.Warn().Err(err).Msg("recovery: AllPositions query failed; skipping ghost check")
+		return
+	}
+	for _, p := range positions {
+		if activeSymbols[p.Symbol] {
+			continue
+		}
+		r.log.Error().Str("symbol", p.Symbol).
+			Str("qty", p.Qty.String()).Str("entry_price", p.EntryPrice.String()).
+			Msg("recovery: GHOST position on exchange — no active VP in DB")
+		_ = r.notifier.Send(ctx, notify.BuildGhostPositionMessage(p.Symbol, p.Qty.String(), p.EntryPrice.String()))
+	}
 }
 
 // closeData is what we need to record an offline close into position_history.

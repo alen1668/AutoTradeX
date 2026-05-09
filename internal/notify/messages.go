@@ -352,3 +352,30 @@ Agent 当前按 fail_mode 兜底,不影响交易底线但等同未接 agent。`
 		Severity: SeverityCritical,
 	}
 }
+
+// BuildGhostPositionMessage — exchange has a non-zero position with no
+// matching active VP in DB. Caller (position heartbeat) is expected to
+// throttle if the same ghost persists across cycles; the builder itself
+// has no throttle.
+func BuildGhostPositionMessage(symbol, qty, entryPrice string) Message {
+	body := fmt.Sprintf(
+		`币安账户上发现「幽灵仓位」(DB 无对应 active VP)：
+
+币种：%s
+数量：%s
+入场价：%s
+
+可能原因：
+1. 你在币安 UI 手动开了仓
+2. 之前 bot 的 VP 被异常关闭但仓位没真平
+3. 第三方平台或脚本下的单
+
+请去 /positions 与币安账户对账。如确认是 bot 应该接管，请在 DB 直接 INSERT 一行 virtual_positions（带匹配的 strategy_id）；否则去币安 UI 平掉。`,
+		symbol, qty, entryPrice,
+	)
+	return Message{
+		Title:    "👻 发现幽灵仓位",
+		Body:     withTimestamp(body),
+		Severity: SeverityCritical,
+	}
+}

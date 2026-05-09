@@ -223,6 +223,33 @@ func (t *Trader) GetPositionRisk(ctx context.Context, symbol string) (*trade.Pos
 	}, nil
 }
 
+// AllPositions returns every NON-ZERO position across all symbols on the
+// account. Used by the position heartbeat to detect "ghost" positions
+// (qty on exchange but no matching active VP in DB) — typically caused
+// by manual trades on the exchange UI or external automation.
+func (t *Trader) AllPositions(ctx context.Context) ([]trade.Position, error) {
+	cctx, cancel := context.WithTimeout(ctx, t.timeout)
+	defer cancel()
+
+	rows, err := t.client.NewGetPositionRiskService().Do(cctx)
+	if err != nil {
+		return nil, fmt.Errorf("binance get all positions: %w", err)
+	}
+	out := make([]trade.Position, 0, 8)
+	for _, r := range rows {
+		qty := parseDec(r.PositionAmt)
+		if qty.IsZero() {
+			continue
+		}
+		out = append(out, trade.Position{
+			Symbol:     r.Symbol,
+			Qty:        qty,
+			EntryPrice: parseDec(r.EntryPrice),
+		})
+	}
+	return out, nil
+}
+
 // StepSize returns the LOT_SIZE.stepSize for the given symbol, cached for
 // process lifetime. Satisfies the application/trade.StepSizer interface.
 func (t *Trader) StepSize(ctx context.Context, symbol string) (decimal.Decimal, error) {
