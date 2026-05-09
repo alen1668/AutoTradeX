@@ -56,7 +56,41 @@ func (r *Recovery) Run(ctx context.Context) error {
 		return fmt.Errorf("force disarm: %w", err)
 	}
 
-	// 2) Find all virtual positions that DB thinks are active
+	if err := r.reconcileAllActive(ctx); err != nil {
+		return err
+	}
+	r.log.Info().Msg("startup recovery: done — system disarmed")
+	return nil
+}
+
+// RunPeriodic loops every `interval` calling reconcileAllActive, until ctx
+// is canceled. This is the runtime "position heartbeat" — startup recovery
+// only runs once at boot, so without this a position closed externally
+// (stop loss triggered server-side, manual close on the exchange UI) would
+// stay 'open' in DB indefinitely. Returns when ctx is done.
+func (r *Recovery) RunPeriodic(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = 120 * time.Second
+	}
+	r.log.Info().Dur("interval", interval).Msg("position heartbeat: started")
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			r.log.Info().Msg("position heartbeat: stopped")
+			return
+		case <-t.C:
+			if err := r.reconcileAllActive(ctx); err != nil {
+				r.log.Warn().Err(err).Msg("position heartbeat: reconcile cycle failed")
+			}
+		}
+	}
+}
+
+// reconcileAllActive runs reconcileOne against every currently-open VP.
+// Shared by startup Run and the runtime heartbeat (RunPeriodic).
+func (r *Recovery) reconcileAllActive(ctx context.Context) error {
 	rows, err := r.pool.Query(ctx, `
 SELECT id FROM virtual_positions
  WHERE status IN ('opening','open','closing')`)
@@ -74,7 +108,7 @@ SELECT id FROM virtual_positions
 	}
 	rows.Close()
 
-	r.log.Info().Int("count", len(ids)).Msg("startup recovery: active VPs to reconcile")
+	r.log.Info().Int("count", len(ids)).Msg("recovery: active VPs to reconcile")
 
 	for _, id := range ids {
 		if err := r.reconcileOne(ctx, id); err != nil {
@@ -82,7 +116,6 @@ SELECT id FROM virtual_positions
 			_ = r.notifier.Send(ctx, notify.BuildRecoveryAnomalyMessage(id, err.Error()))
 		}
 	}
-	r.log.Info().Msg("startup recovery: done — system disarmed")
 	return nil
 }
 

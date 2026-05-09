@@ -377,6 +377,12 @@ func main() {
 		}
 	}()
 
+	// Position heartbeat: re-runs the startup-recovery reconcile every 2
+	// minutes so a position closed externally (server-side stop trigger,
+	// manual exchange UI close) gets reflected in DB instead of staying
+	// permanently 'open'. Independent of the per-30s order reconciler.
+	go recovery.RunPeriodic(shutCtx, 2*time.Minute)
+
 	if err := srv.Start(shutCtx); err != nil {
 		logger.Error().Err(err).Msg("server error")
 		os.Exit(1)
