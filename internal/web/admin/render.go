@@ -178,6 +178,11 @@ func funcMap() template.FuncMap {
 			}
 			return *p
 		},
+		// safeURL marks a string as a trusted URL fragment so html/template
+		// stops url-encoding it. Used by /signals pagination links —
+		// without this `?page=2` becomes `?page%3d2` and the page query
+		// parameter never reaches the handler.
+		"safeURL": func(s string) template.URL { return template.URL(s) },
 	}
 }
 

@@ -109,12 +109,12 @@
   <div class="text-gray-500">第 {{ .Page.Page }} / {{ .Page.TotalPages }} 页</div>
   <div class="flex gap-2">
     {{ if gt .Page.Page 1 }}
-      <a href="/signals?{{ .Page.PrevQS }}" class="border px-3 py-1 rounded">← 上一页</a>
+      <a href="/signals?{{ safeURL .Page.PrevQS }}" class="border px-3 py-1 rounded">← 上一页</a>
     {{ else }}
       <span class="border px-3 py-1 rounded text-gray-300">← 上一页</span>
     {{ end }}
     {{ if lt .Page.Page .Page.TotalPages }}
-      <a href="/signals?{{ .Page.NextQS }}" class="border px-3 py-1 rounded">下一页 →</a>
+      <a href="/signals?{{ safeURL .Page.NextQS }}" class="border px-3 py-1 rounded">下一页 →</a>
     {{ else }}
       <span class="border px-3 py-1 rounded text-gray-300">下一页 →</span>
     {{ end }}
