@@ -3,68 +3,15 @@ package scorer
 import (
 	"bytes"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"fmt"
 	"text/template"
 	"time"
 )
 
-// promptTemplate is the v1 LLM prompt. Any modification MUST regenerate the
-// golden file (`UPDATE_GOLDEN=1 go test ./internal/agent/scorer/...`) and
-// must be reviewed by a human reviewer — prompt changes are
-// behavior-changing, so they live in code review just like the SQL and Go
-// changes.
-const promptTemplate = `你是一名加密货币永续合约交易顾问，需要对一条 TradingView 信号给出
-0~100 的执行可信度评分。请严格基于下列输入做判断,不要臆测未给出的信息。
-
-【当前信号】
-策略: {{.StrategyID}}
-交易对: {{.Signal.Symbol}}
-方向: {{.Signal.Kind}}
-价格: {{.Signal.Price}}
-时间(UTC): {{.SignalTimeUTC}}
-
-【该策略+该 symbol 最近 {{len .Input.SymbolHistory}} 笔已完成交易】
-{{range .Input.SymbolHistory -}}
-- {{.OpenedAt.UTC.Format "2006-01-02 15:04"}} {{.Direction}} 入 {{.EntryPrice}} 出 {{.ExitPrice}} ({{.ExitReason}}) PnL=${{.PnLUSD}} 持仓 {{.DurationMin}}分钟
-{{end}}
-【该策略所有 symbol 最近 {{len .Input.StrategyHistory}} 笔】
-{{range .Input.StrategyHistory -}}
-- {{.OpenedAt.UTC.Format "2006-01-02 15:04"}} {{.Symbol}} {{.Direction}} 入 {{.EntryPrice}} 出 {{.ExitPrice}} ({{.ExitReason}}) PnL=${{.PnLUSD}}
-{{end}}
-【当前总仓位】
-{{if .Input.Portfolio -}}
-总名义值: ${{.Input.Portfolio.TotalNotionalUSD}}
-当日已实现盈亏: ${{.Input.Portfolio.DailyPnLUSD}}
-活跃仓位:
-{{range .Input.Portfolio.OpenPositions -}}
-- {{.StrategyID}} {{.Symbol}} {{.Direction}} 名义${{.NotionalUSD}} 浮动盈亏${{.UnrealizedPnL}}
-{{end -}}
-{{else}}仓位数据暂不可用
-{{end}}
-【当前 {{.Signal.Symbol}} 市场状态】
-{{if .Input.Market -}}
-24h 区间: {{.Input.Market.Last24hLow}} ~ {{.Input.Market.Last24hHigh}}
-当前价相对区间位置: {{.Input.Market.PriceVs24hRange}} (0=最低, 1=最高)
-24h 涨跌: {{.Input.Market.Last24hChangePct}}%   1h 涨跌: {{.Input.Market.Last1hChangePct}}%
-24h 波动率: {{.Input.Market.Volatility24h}}
-最近 24 根 1h 收盘价: {{.Input.Market.KlineLookback1h}}
-{{else}}市场数据暂不可用
-{{end}}
-【高波动时段标识】
-{{if .Input.HighVolWindows}}当前命中: {{.Input.HighVolWindows}} (信号在该时段需更谨慎)
-{{else}}非已知高波动时段
-{{end}}
-请综合判断:
-1. 该策略+symbol 近期表现是否稳定?
-2. 当前总仓位是否过度集中或与本信号方向冲突?
-3. 当前价格位置 / 波动率是否极端 (例如已位于 24h 极端区间或波动率异常高)?
-4. 是否处于高波动时段 (新闻、事件驱动可能放大策略失效)?
-5. 信号方向与近期获胜方向是否一致?
-
-请严格返回以下 JSON,不要包含任何额外文字、解释或代码块标记:
-{"score": <0-100整数>, "decision": "approve" 或 "abandon", "reasoning": "<≤300字理由>"}
-`
+//go:embed templates/v1.tmpl
+var promptTemplate string
 
 var compiledTemplate = template.Must(template.New("prompt").Parse(promptTemplate))
 
