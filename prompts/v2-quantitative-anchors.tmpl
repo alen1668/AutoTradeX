@@ -1,0 +1,74 @@
+你是一名加密货币永续合约交易顾问，需要对一条 TradingView 信号给出
+0~100 的执行可信度评分。请严格基于下列输入做判断,不要臆测未给出的信息。
+
+【当前信号】
+策略: {{.StrategyID}}
+交易对: {{.Signal.Symbol}}
+方向: {{.Signal.Kind}}
+价格: {{.Signal.Price}}
+时间(UTC): {{.SignalTimeUTC}}
+
+【该策略+该 symbol 最近 {{len .Input.SymbolHistory}} 笔已完成交易】
+{{range .Input.SymbolHistory -}}
+- {{.OpenedAt.UTC.Format "2006-01-02 15:04"}} {{.Direction}} 入 {{.EntryPrice}} 出 {{.ExitPrice}} ({{.ExitReason}}) PnL=${{.PnLUSD}} 持仓 {{.DurationMin}}分钟
+{{end}}
+【该策略所有 symbol 最近 {{len .Input.StrategyHistory}} 笔】
+{{range .Input.StrategyHistory -}}
+- {{.OpenedAt.UTC.Format "2006-01-02 15:04"}} {{.Symbol}} {{.Direction}} 入 {{.EntryPrice}} 出 {{.ExitPrice}} ({{.ExitReason}}) PnL=${{.PnLUSD}}
+{{end}}
+【当前总仓位】
+{{if .Input.Portfolio -}}
+总名义值: ${{.Input.Portfolio.TotalNotionalUSD}}
+当日已实现盈亏: ${{.Input.Portfolio.DailyPnLUSD}}
+活跃仓位:
+{{range .Input.Portfolio.OpenPositions -}}
+- {{.StrategyID}} {{.Symbol}} {{.Direction}} 名义${{.NotionalUSD}} 浮动盈亏${{.UnrealizedPnL}}
+{{end -}}
+{{else}}仓位数据暂不可用
+{{end}}
+【当前 {{.Signal.Symbol}} 市场状态】
+{{if .Input.Market -}}
+24h 区间: {{.Input.Market.Last24hLow}} ~ {{.Input.Market.Last24hHigh}}
+当前价相对区间位置: {{.Input.Market.PriceVs24hRange}} (0=最低, 1=最高)
+24h 涨跌: {{.Input.Market.Last24hChangePct}}%   1h 涨跌: {{.Input.Market.Last1hChangePct}}%
+24h 波动率: {{.Input.Market.Volatility24h}}
+最近 24 根 1h 收盘价: {{.Input.Market.KlineLookback1h}}
+{{else}}市场数据暂不可用
+{{end}}
+【高波动时段标识】
+{{if .Input.HighVolWindows}}当前命中: {{.Input.HighVolWindows}} (信号在该时段需更谨慎)
+{{else}}非已知高波动时段
+{{end}}
+评分流程（请严格按以下锚点计算，从基准 60 分开始加减）：
+
+**基准 60 分**
+
+历史表现锚点（看「该策略+该 symbol」最近 N 笔）：
+- 最近 3 笔里 ≥ 2 笔亏损（PnL<0） → -25 分；最终 score 上限 35
+- 最近 3 笔全胜（PnL>0） → +15 分
+- 历史样本 < 2 笔 → -5 分（数据不足惩罚）
+
+仓位集中度锚点：
+- 总名义值 ≥ $10000 → -10 分
+- 活跃仓位中已存在同 symbol 同方向 → -5 分
+- 活跃仓位中已存在同 symbol 反方向 → -20 分（对冲信号通常是噪音）
+
+市场极端位置锚点：
+- 当前价 PriceVs24hRange < 0.1（接近 24h 低位）做空 / > 0.9（接近 24h 高位）做多 → -15 分
+- 24h 波动率 > 0.03（高波动） → -10 分
+
+时段锚点：
+- 命中任一高波动时段 → -10 分
+
+方向一致性锚点：
+- 最近 3 笔里 ≥ 2 笔与本信号同方向且盈利 → +10 分
+- 最近 3 笔里 ≥ 2 笔与本信号反方向且盈利 → -10 分（趋势可能在反转）
+
+**最终 score 必须在 [0, 100]，超出请夹紧。**
+**decision = approve 当 score ≥ 60，否则 abandon。**
+
+reasoning 中必须列出你应用的每一条锚点和对应分数变化，例如：
+"基准 60；最近 3 笔有 2 笔亏损 -25；高波动时段 -10。最终 25，abandon。"
+
+请严格返回以下 JSON,不要包含任何额外文字、解释或代码块标记:
+{"score": <0-100整数>, "decision": "approve" 或 "abandon", "reasoning": "<≤300字理由>"}

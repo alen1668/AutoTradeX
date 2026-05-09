@@ -51,6 +51,3 @@ docker-compose.override.yml
 # Reference material / internal design docs (kept local, not published)
 images/
 docs/
-
-# Local prompt drafts for cmd/agent-eval --replay
-prompts/
