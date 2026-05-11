@@ -62,9 +62,30 @@ func (h *EvalHandler) Index(w http.ResponseWriter, r *http.Request) {
 	h.render.Render(w, http.StatusOK, "eval/index", data)
 }
 
-// ReplayList handles GET /eval/replays. Implemented in Task 11.
+// ReplayList handles GET /eval/replays. Returns 20 most recent runs.
+// Cursor-based pagination: ?cursor=<id> returns rows with id < cursor.
 func (h *EvalHandler) ReplayList(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	ctx, cancel := withTimeout(r)
+	defer cancel()
+
+	var cursor int64
+	if c := r.URL.Query().Get("cursor"); c != "" {
+		_, _ = fmt.Sscanf(c, "%d", &cursor)
+	}
+	runs, next, err := h.store.ListRuns(ctx, cursor, 20)
+	if err != nil {
+		http.Error(w, "list: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	data := map[string]any{
+		"Runs":   runs,
+		"Next":   next,
+		"Cursor": cursor,
+	}
+	if h.statusH != nil {
+		data = h.statusH.WithStatus(r, data)
+	}
+	h.render.Render(w, http.StatusOK, "eval/replays_list", data)
 }
 
 // ReplayDetail handles GET /eval/replays/{id}. Implemented in Task 12.

@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net/http"
 	"strings"
+	"time"
 )
 
 //go:embed templates
@@ -175,6 +176,18 @@ func funcMap() template.FuncMap {
 		"derefBool": func(p *bool) bool {
 			if p == nil {
 				return false
+			}
+			return *p
+		},
+		"unix2human": func(ts int64) string {
+			if ts == 0 {
+				return "—"
+			}
+			return time.Unix(ts, 0).Format("2006-01-02 15:04:05")
+		},
+		"derefInt64": func(p *int64) int64 {
+			if p == nil {
+				return 0
 			}
 			return *p
 		},
