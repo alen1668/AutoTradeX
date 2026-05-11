@@ -98,20 +98,24 @@ func (h *EvalHandler) Stream(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "broker not configured", http.StatusServiceUnavailable)
 		return
 	}
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
-		return
-	}
+	// Set headers BEFORE the first Write so they make it into the
+	// status line. http.NewResponseController walks the Unwrap() chain
+	// (logger.statusRecorder, scs.sessionResponseWriter) to reach the
+	// underlying Flusher.
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	rc := http.NewResponseController(w)
 
 	id, ch := h.broker.Subscribe()
 	defer h.broker.Unsubscribe(id)
 
 	fmt.Fprintf(w, "event: ready\ndata: {\"id\":%d}\n\n", id)
-	flusher.Flush()
+	if err := rc.Flush(); err != nil {
+		// First flush failure → underlying writer can't stream.
+		fmt.Fprintf(w, "event: error\ndata: {\"err\":\"flush_unsupported\"}\n\n")
+		return
+	}
 
 	for {
 		select {
@@ -126,7 +130,7 @@ func (h *EvalHandler) Stream(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			fmt.Fprintf(w, "data: %s\n\n", raw)
-			flusher.Flush()
+			_ = rc.Flush()
 		}
 	}
 }

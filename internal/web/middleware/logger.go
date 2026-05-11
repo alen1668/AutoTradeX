@@ -20,6 +20,13 @@ func (s *statusRecorder) WriteHeader(code int) {
 	s.ResponseWriter.WriteHeader(code)
 }
 
+// Unwrap exposes the inner ResponseWriter so http.NewResponseController can
+// reach a real Flusher / Hijacker. Without this, SSE responses get buffered
+// at the logger layer and never reach the client.
+func (s *statusRecorder) Unwrap() http.ResponseWriter {
+	return s.ResponseWriter
+}
+
 // RequestLogger emits one structured log line per request, tagged with trace_id.
 func RequestLogger(base zerolog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
