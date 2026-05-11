@@ -202,3 +202,48 @@ func TestSettingsRepo_UpdateLLMAPI_EmptyKeyPreservesExisting(t *testing.T) {
 	assert.Equal(t, "sk-test-1", s2.LLMAPIKey)
 	assert.Equal(t, "https://example.com", s2.LLMAPIBaseURL)
 }
+
+func TestSettingsRepo_MacroDefaults(t *testing.T) {
+	pool := testPool(t)
+	repo := NewSettingsRepo(pool)
+	s, err := repo.Get(context.Background(), pool)
+	require.NoError(t, err)
+	assert.False(t, s.RegimeEnabled)
+	assert.Equal(t, 30, s.RegimeIntervalMin)
+	assert.False(t, s.CalendarEnabled)
+	assert.False(t, s.NewsEnabled)
+	assert.Equal(t, 15, s.NewsIntervalMin)
+	assert.Empty(t, s.NewsAPIKey)
+	assert.Equal(t, "claude-haiku-4-5-20251001", s.NewsLLMModel)
+}
+
+func TestSettingsRepo_UpdateMacro(t *testing.T) {
+	pool := testPool(t)
+	repo := NewSettingsRepo(pool)
+	ctx := context.Background()
+	require.NoError(t, repo.UpdateMacro(ctx, pool,
+		true, 45, false, true, 10, "test-cryptopanic-key", "claude-sonnet-4-6"))
+
+	s, err := repo.Get(ctx, pool)
+	require.NoError(t, err)
+	assert.True(t, s.RegimeEnabled)
+	assert.False(t, s.CalendarEnabled)
+	assert.True(t, s.NewsEnabled)
+	assert.Equal(t, 45, s.RegimeIntervalMin)
+	assert.Equal(t, 10, s.NewsIntervalMin)
+	assert.Equal(t, "test-cryptopanic-key", s.NewsAPIKey)
+	assert.Equal(t, "claude-sonnet-4-6", s.NewsLLMModel)
+}
+
+func TestSettingsRepo_SetMacroFlags(t *testing.T) {
+	pool := testPool(t)
+	repo := NewSettingsRepo(pool)
+	ctx := context.Background()
+	require.NoError(t, repo.SetRegimeEnabled(ctx, pool, true))
+	require.NoError(t, repo.SetCalendarEnabled(ctx, pool, true))
+	require.NoError(t, repo.SetNewsEnabled(ctx, pool, true))
+	s, _ := repo.Get(ctx, pool)
+	assert.True(t, s.RegimeEnabled)
+	assert.True(t, s.CalendarEnabled)
+	assert.True(t, s.NewsEnabled)
+}

@@ -35,6 +35,14 @@ type Settings struct {
 	LLMAPIProvider          string
 	LLMAPIKey               string
 	LLMAPIBaseURL           string
+	// Macro context (regime / calendar / news workers)
+	RegimeEnabled     bool
+	RegimeIntervalMin int
+	CalendarEnabled   bool
+	NewsEnabled       bool
+	NewsIntervalMin   int
+	NewsAPIKey        string
+	NewsLLMModel      string
 }
 
 type SettingsRepo struct {
@@ -63,7 +71,10 @@ SELECT max_total_leverage, max_daily_loss_usdc,
        agent_scorer_enabled, agent_scorer_model, agent_scorer_threshold,
        agent_scorer_timeout_ms, agent_scorer_history_limit,
        agent_scorer_fail_mode, agent_scorer_dry_run,
-       llm_api_provider, llm_api_key, llm_api_base_url
+       llm_api_provider, llm_api_key, llm_api_base_url,
+       regime_enabled, regime_interval_min,
+       calendar_enabled,
+       news_enabled, news_interval_min, news_api_key, news_llm_model
   FROM system_state WHERE id=1`,
 	).Scan(&maxLev, &maxLoss, &feishuURL, &s.FeishuEnabled, &tgToken, &tgChat, &s.TelegramEnabled,
 		&bnKey, &bnSecret,
@@ -75,7 +86,11 @@ SELECT max_total_leverage, max_daily_loss_usdc,
 		&s.AgentScorerEnabled, &s.AgentScorerModel, &s.AgentScorerThreshold,
 		&s.AgentScorerTimeoutMs, &s.AgentScorerHistoryLimit,
 		&s.AgentScorerFailMode, &s.AgentScorerDryRun,
-		&s.LLMAPIProvider, &s.LLMAPIKey, &s.LLMAPIBaseURL)
+		&s.LLMAPIProvider, &s.LLMAPIKey, &s.LLMAPIBaseURL,
+		&s.RegimeEnabled, &s.RegimeIntervalMin,
+		&s.CalendarEnabled,
+		&s.NewsEnabled, &s.NewsIntervalMin, &s.NewsAPIKey, &s.NewsLLMModel,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -264,5 +279,50 @@ UPDATE system_state SET
     llm_api_base_url = $3,
     updated_at=now()
  WHERE id=1`, provider, apiKey, baseURL)
+	return err
+}
+
+// UpdateMacro updates the regime/calendar/news worker settings in one call.
+func (r *SettingsRepo) UpdateMacro(ctx context.Context, q Querier,
+	regimeEnabled bool, regimeIntervalMin int,
+	calendarEnabled bool,
+	newsEnabled bool, newsIntervalMin int, newsAPIKey, newsLLMModel string,
+) error {
+	_, err := q.Exec(ctx, `
+UPDATE system_state SET
+    regime_enabled      = $1,
+    regime_interval_min = $2,
+    calendar_enabled    = $3,
+    news_enabled        = $4,
+    news_interval_min   = $5,
+    news_api_key        = $6,
+    news_llm_model      = $7,
+    updated_at=now()
+ WHERE id=1`,
+		regimeEnabled, regimeIntervalMin,
+		calendarEnabled,
+		newsEnabled, newsIntervalMin, newsAPIKey, newsLLMModel,
+	)
+	return err
+}
+
+// SetRegimeEnabled flips just the regime flag.
+func (r *SettingsRepo) SetRegimeEnabled(ctx context.Context, q Querier, enabled bool) error {
+	_, err := q.Exec(ctx,
+		`UPDATE system_state SET regime_enabled=$1, updated_at=now() WHERE id=1`, enabled)
+	return err
+}
+
+// SetCalendarEnabled flips just the calendar flag.
+func (r *SettingsRepo) SetCalendarEnabled(ctx context.Context, q Querier, enabled bool) error {
+	_, err := q.Exec(ctx,
+		`UPDATE system_state SET calendar_enabled=$1, updated_at=now() WHERE id=1`, enabled)
+	return err
+}
+
+// SetNewsEnabled flips just the news flag.
+func (r *SettingsRepo) SetNewsEnabled(ctx context.Context, q Querier, enabled bool) error {
+	_, err := q.Exec(ctx,
+		`UPDATE system_state SET news_enabled=$1, updated_at=now() WHERE id=1`, enabled)
 	return err
 }
