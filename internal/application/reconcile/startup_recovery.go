@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/shopspring/decimal"
 
+	"github.com/lizhaojie/tvbot/internal/eval"
 	"github.com/lizhaojie/tvbot/internal/notify"
 	"github.com/lizhaojie/tvbot/internal/store"
 	"github.com/lizhaojie/tvbot/internal/trade"
@@ -26,6 +27,14 @@ type Recovery struct {
 	trader      trade.Trader
 	notifier    notify.Notifier
 	log         zerolog.Logger
+
+	publisher eval.Publisher // nil-safe Phase 3 SSE wiring
+}
+
+// WithPublisher wires the Phase 3 SSE broker. nil is accepted (no-op).
+func (r *Recovery) WithPublisher(p eval.Publisher) *Recovery {
+	r.publisher = p
+	return r
 }
 
 // NewRecovery creates a Recovery instance.
@@ -311,7 +320,7 @@ func (r *Recovery) recordHistory(ctx context.Context, vp *store.VirtualPositionR
 		closedAt = time.Now().UTC()
 	}
 	duration := int(closedAt.Sub(vp.OpenedAt).Seconds())
-	return r.historyRepo.Insert(ctx, r.pool, store.PositionHistoryRow{
+	row := store.PositionHistoryRow{
 		StrategyID: vp.StrategyID, Symbol: vp.Symbol, Side: vp.Side, Qty: cd.ExitQty,
 		EntrySignalPrice: vp.EntrySignalPrice, EntryFillPrice: vp.EntryFillPrice,
 		ExitSignalPrice:  cd.ExitPrice, ExitFillPrice: cd.ExitPrice,
@@ -319,7 +328,21 @@ func (r *Recovery) recordHistory(ctx context.Context, vp *store.VirtualPositionR
 		CloseReason:      mapNotifyReasonToHistory(cd.CloseReason),
 		DurationSeconds:  duration,
 		OpenedAt:         vp.OpenedAt, ClosedAt: closedAt,
-	})
+	}
+	if err := r.historyRepo.Insert(ctx, r.pool, row); err != nil {
+		return err
+	}
+	// Phase 3: push trade_closed after successful Insert. nil-safe.
+	if r.publisher != nil {
+		pnlFloat, _ := row.PnLUSDC.Float64()
+		r.publisher.Publish(eval.EvalEvent{
+			Kind:       "trade_closed",
+			Symbol:     row.Symbol,
+			PnLUSDC:    &pnlFloat,
+			OccurredAt: time.Now().Unix(),
+		})
+	}
+	return nil
 }
 
 // mapNotifyReasonToHistory translates notify.CloseReason* constants to the
