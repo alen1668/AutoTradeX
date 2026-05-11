@@ -255,6 +255,7 @@ func main() {
 		incomeFetcher = bt
 	}
 	statsHandler := admin.NewStatsHandler(renderer, pool, statusHandler, incomeFetcher)
+	evalHandler := admin.NewEvalHandler(renderer, pool).WithStatus(statusHandler)
 	settingsHandler := admin.NewSettingsHandler(renderer, pool, settingsRepo, statusHandler)
 
 	// ── webhook handler ──────────────────────────────────────────────────────
@@ -326,6 +327,12 @@ func main() {
 
 			// Stats
 			r.Get("/stats", statsHandler.Index)
+
+			// Eval dashboard
+			r.Get("/eval", evalHandler.Index)
+			r.Get("/eval/replays", evalHandler.ReplayList)
+			r.Get("/eval/replays/{id}", evalHandler.ReplayDetail)
+			r.Get("/eval/replays/{id}/rows", evalHandler.ReplayRowsPartial)
 
 			// Settings
 			r.Get("/settings", settingsHandler.Index)
