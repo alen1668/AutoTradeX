@@ -76,6 +76,8 @@ func applyMigrations(t *testing.T, p *pgxpool.Pool) {
 		"../../migrations/0005_strategies_archived.sql",
 		"../../migrations/0006_signal_decision_abandoned.sql",
 		"../../migrations/0007_agent_scoring.sql",
+		"../../migrations/0008_agent_scorer_default_sonnet46.sql",
+		"../../migrations/0009_replay_runs.sql",
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
