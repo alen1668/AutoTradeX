@@ -170,8 +170,13 @@ func main() {
 	}
 	var trader tradepkg.Trader = binanceinfra.New(binCfg, dbSettings.BinanceAPIKey, dbSettings.BinanceAPISecret, cfg.BotMode, logger)
 
+	// ── Phase 3 SSE broker ───────────────────────────────────────────────────
+	// Fan-out hub for agent_score / trade_closed events. Hot path stays
+	// non-blocking; SSE clients connect via /eval/stream.
+	broker := evalpkg.NewBroker(logger)
+
 	// ── application services ─────────────────────────────────────────────────
-	tradeSvc := trade.NewService(pool, orderRepo, posRepo, historyRepo, trader).WithSystemRepo(systemRepo)
+	tradeSvc := trade.NewService(pool, orderRepo, posRepo, historyRepo, trader).WithSystemRepo(systemRepo).WithPublisher(broker)
 
 	// For testnet/live: inject BinanceTrader as StepSizer.
 	if bt, ok := trader.(*binanceinfra.Trader); ok {
@@ -217,7 +222,7 @@ func main() {
 		marketProv = market.NewProvider(klineClient, 30*time.Second).WithLogger(
 			logger.With().Str("c", "agent_market").Logger())
 	}
-	agentHook := ingest.NewAgentHook(scorerFactory, historyProv, portfolioProv, marketProv)
+	agentHook := ingest.NewAgentHook(scorerFactory, historyProv, portfolioProv, marketProv).WithPublisher(broker)
 
 	ingestSvc := ingest.NewService(ingestCfg, pool,
 		signalRepo, settingsRepo, strategyRepo, posRepo, systemRepo,
@@ -256,7 +261,7 @@ func main() {
 		incomeFetcher = bt
 	}
 	statsHandler := admin.NewStatsHandler(renderer, pool, statusHandler, incomeFetcher)
-	evalHandler := admin.NewEvalHandler(renderer, pool).WithStatus(statusHandler)
+	evalHandler := admin.NewEvalHandler(renderer, pool).WithStatus(statusHandler).WithBroker(broker)
 	evalNewHandler := admin.NewEvalNewHandler(renderer, pool).WithStatus(statusHandler)
 	settingsHandler := admin.NewSettingsHandler(renderer, pool, settingsRepo, statusHandler)
 
@@ -332,12 +337,14 @@ func main() {
 
 			// Eval dashboard
 			r.Get("/eval", evalHandler.Index)
+			r.Get("/eval/stream", evalHandler.Stream)
 			r.Get("/eval/replays", evalHandler.ReplayList)
 			r.Get("/eval/replays/new", evalNewHandler.GetNew)
 			r.Post("/eval/replays/preview", evalNewHandler.PostPreview)
 			r.Post("/eval/replays", evalNewHandler.PostCreate)
 			r.Get("/eval/replays/{id}", evalHandler.ReplayDetail)
 			r.Get("/eval/replays/{id}/rows", evalHandler.ReplayRowsPartial)
+			r.Get("/eval/ab/{id}", evalHandler.ABCompare)
 
 			// Settings
 			r.Get("/settings", settingsHandler.Index)
@@ -376,7 +383,7 @@ func main() {
 	}
 
 	// ── startup recovery (BEFORE HTTP server) ────────────────────────────────
-	recovery := reconcile.NewRecovery(pool, posRepo, orderRepo, historyRepo, systemRepo, trader, notifier, logger)
+	recovery := reconcile.NewRecovery(pool, posRepo, orderRepo, historyRepo, systemRepo, trader, notifier, logger).WithPublisher(broker)
 	if err := recovery.Run(context.Background()); err != nil {
 		logger.Error().Err(err).Msg("startup recovery failed")
 		os.Exit(1)
@@ -399,7 +406,7 @@ func main() {
 		reconcilerInterval = dbSettings.ReconcilerIntervalSeconds
 	}
 	reconciler := reconcile.New(pool, orderRepo, posRepo, historyRepo, trader, notifier, logger,
-		time.Duration(reconcilerInterval)*time.Second)
+		time.Duration(reconcilerInterval)*time.Second).WithPublisher(broker)
 	go func() {
 		if err := reconciler.Run(shutCtx); err != nil && !errors.Is(err, context.Canceled) {
 			logger.Error().Err(err).Msg("reconciler exited")
