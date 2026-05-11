@@ -61,8 +61,32 @@
     </div>
   </div>
 
+  <div class="bg-white shadow rounded p-4">
+    <h2 class="font-semibold mb-3">实时图(近 24h)</h2>
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <h3 class="text-sm font-semibold mb-1">Agent Score 时序</h3>
+        <canvas id="scoreScatter" height="120"></canvas>
+      </div>
+      <div>
+        <h3 class="text-sm font-semibold mb-1">LLM 成功率</h3>
+        <canvas id="llmRate" height="120"></canvas>
+      </div>
+      <div>
+        <h3 class="text-sm font-semibold mb-1">累积 PnL</h3>
+        <canvas id="cumPnL" height="120"></canvas>
+      </div>
+      <div>
+        <h3 class="text-sm font-semibold mb-1">Score 5 档分布</h3>
+        <canvas id="scoreBuckets" height="120"></canvas>
+      </div>
+    </div>
+  </div>
+
   <script>
   window.EVAL_INIT = {{ .InitJSON }};
   </script>
+  <script src="/static/chart.umd.min.js"></script>
+  <script src="/static/eval-stream.js"></script>
 </div>
 {{ end }}
