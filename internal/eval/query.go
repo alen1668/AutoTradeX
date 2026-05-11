@@ -2,6 +2,7 @@ package eval
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"time"
 
@@ -197,4 +198,96 @@ WHERE created_at >= $1`, cutoff).Scan(
 		h.FailureRate = float64(h.FailedCalls) / float64(h.TotalCalls) * 100
 	}
 	return h, nil
+}
+
+// LoadInitSnapshot returns the server-rendered initial state injected into
+// /eval as window.EVAL_INIT. Covers the last 24h so the front-end's
+// rolling window has data on first paint. Cheap: 3 SQL queries.
+func LoadInitSnapshot(ctx context.Context, pool *pgxpool.Pool) (InitData, error) {
+	cutoff := time.Now().Add(-24 * time.Hour)
+	out := InitData{}
+
+	// 1) Per-signal score points.
+	scoreRows, err := pool.Query(ctx, `
+SELECT extract(epoch from e.created_at)::bigint, e.score, e.decision, s.symbol
+  FROM agent_evaluations e
+  JOIN signals s ON s.id = e.signal_id
+ WHERE e.created_at >= $1 AND e.score IS NOT NULL
+ ORDER BY e.created_at ASC`, cutoff)
+	if err != nil {
+		return out, fmt.Errorf("init scores: %w", err)
+	}
+	defer scoreRows.Close()
+	for scoreRows.Next() {
+		var p ScorePoint
+		if err := scoreRows.Scan(&p.T, &p.Score, &p.Decision, &p.Symbol); err != nil {
+			return out, err
+		}
+		out.Scores = append(out.Scores, p)
+		switch {
+		case p.Score < 20:
+			out.Buckets[0]++
+		case p.Score < 40:
+			out.Buckets[1]++
+		case p.Score < 60:
+			out.Buckets[2]++
+		case p.Score < 80:
+			out.Buckets[3]++
+		default:
+			out.Buckets[4]++
+		}
+	}
+	if err := scoreRows.Err(); err != nil {
+		return out, err
+	}
+
+	// 2) Hourly LLM success rate.
+	llmRows, err := pool.Query(ctx, `
+SELECT extract(epoch from date_trunc('hour', created_at))::bigint  AS t,
+       COUNT(*)                                                    AS total,
+       COUNT(*) FILTER (WHERE decision <> 'failed')                AS successful
+  FROM agent_evaluations
+ WHERE created_at >= $1
+ GROUP BY t
+ ORDER BY t ASC`, cutoff)
+	if err != nil {
+		return out, fmt.Errorf("init llm: %w", err)
+	}
+	defer llmRows.Close()
+	for llmRows.Next() {
+		var p LLMRatePoint
+		if err := llmRows.Scan(&p.T, &p.Total, &p.Successful); err != nil {
+			return out, err
+		}
+		out.LLM = append(out.LLM, p)
+	}
+	if err := llmRows.Err(); err != nil {
+		return out, err
+	}
+
+	// 3) Cumulative PnL.
+	pnlRows, err := pool.Query(ctx, `
+SELECT extract(epoch from closed_at)::bigint, pnl_usdc::float8
+  FROM position_history
+ WHERE closed_at >= $1 AND pnl_usdc IS NOT NULL
+ ORDER BY closed_at ASC`, cutoff)
+	if err != nil {
+		return out, fmt.Errorf("init pnl: %w", err)
+	}
+	defer pnlRows.Close()
+	var cum float64
+	for pnlRows.Next() {
+		var t int64
+		var pnl float64
+		if err := pnlRows.Scan(&t, &pnl); err != nil {
+			return out, err
+		}
+		cum += pnl
+		out.PnL = append(out.PnL, PnLPoint{T: t, Cum: cum})
+	}
+	if err := pnlRows.Err(); err != nil {
+		return out, err
+	}
+
+	return out, nil
 }

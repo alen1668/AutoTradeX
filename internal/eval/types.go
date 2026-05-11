@@ -200,3 +200,31 @@ type FailReason struct {
 	Reason string
 	Count  int
 }
+
+// InitData is the server-rendered snapshot the /eval page injects into
+// the front-end so the 4 Chart.js charts have content before the first
+// SSE event arrives. JSON shape is consumed by eval-stream.js.
+type InitData struct {
+	Scores  []ScorePoint   `json:"scores"`
+	LLM     []LLMRatePoint `json:"llm"`
+	PnL     []PnLPoint     `json:"pnl"`
+	Buckets [5]int         `json:"buckets"`
+}
+
+type ScorePoint struct {
+	T        int64  `json:"t"` // unix epoch seconds
+	Score    int    `json:"score"`
+	Decision string `json:"decision"` // approve | abandon | failed
+	Symbol   string `json:"symbol"`
+}
+
+type LLMRatePoint struct {
+	T          int64 `json:"t"`     // unix epoch seconds (bucket start)
+	Total      int   `json:"total"`
+	Successful int   `json:"successful"` // approve + abandon (decision != "failed")
+}
+
+type PnLPoint struct {
+	T   int64   `json:"t"`   // unix epoch seconds
+	Cum float64 `json:"cum"` // cumulative PnL up to and including this trade
+}
