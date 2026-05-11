@@ -11,6 +11,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/lizhaojie/tvbot/internal/agent/history"
+	"github.com/lizhaojie/tvbot/internal/agent/macrocontext"
 	"github.com/lizhaojie/tvbot/internal/agent/market"
 	"github.com/lizhaojie/tvbot/internal/agent/portfolio"
 	"github.com/lizhaojie/tvbot/internal/agent/scorer"
@@ -34,7 +35,8 @@ type AgentHook struct {
 	portfolioProv *portfolio.Provider
 	marketProv    *market.Provider
 
-	publisher eval.Publisher // nil-safe; Phase 3 wires in cmd/tvbot/main.go
+	publisher   eval.Publisher // nil-safe; Phase 3 wires in cmd/tvbot/main.go
+	macroReader MacroReader    // nil-safe; injected by cmd/tvbot/main.go
 
 	scorerOverride scorer.Scorer // tests inject a stub here
 
@@ -42,6 +44,12 @@ type AgentHook struct {
 	llmAlertLastSent time.Time
 	keyAlertMu       sync.Mutex
 	keyAlertLastSent time.Time
+}
+
+// MacroReader is the surface AgentHook depends on for fetching macro context.
+// macrocontext.Reader implements this; tests can substitute a stub.
+type MacroReader interface {
+	Load(ctx context.Context) macrocontext.MacroContext
 }
 
 // NewAgentHook is the production constructor. Pass nil for any provider
@@ -54,6 +62,14 @@ func NewAgentHook(f *scorer.Factory, hp *history.Provider, pp *portfolio.Provide
 // builder-style chaining. nil is accepted and turns publish into a no-op.
 func (h *AgentHook) WithPublisher(p eval.Publisher) *AgentHook {
 	h.publisher = p
+	return h
+}
+
+// WithMacroReader wires the macrocontext reader. nil is accepted: the
+// prompt then renders all macro sections as "暂不可用" via the template
+// fallback branches.
+func (h *AgentHook) WithMacroReader(r MacroReader) *AgentHook {
+	h.macroReader = r
 	return h
 }
 
@@ -208,6 +224,12 @@ func (h *AgentHook) assembleInput(
 					KlineLookback1h:  mc.KlineLookback1h,
 				}
 			}
+		}
+		return nil
+	})
+	g.Go(func() error {
+		if h.macroReader != nil {
+			in.Macro = h.macroReader.Load(gctx)
 		}
 		return nil
 	})
