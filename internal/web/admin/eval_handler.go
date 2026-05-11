@@ -35,9 +35,31 @@ func (h *EvalHandler) WithStatus(s *StatusHandler) *EvalHandler {
 	return h
 }
 
-// Index handles GET /eval. Implemented in Task 10.
+// Index handles GET /eval. Renders the grayscale-period score-bucket × PnL
+// report. URL params: ?since=1h|24h|3d|7d (default 3d; anything else
+// silently falls back to 3d).
 func (h *EvalHandler) Index(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	ctx, cancel := withTimeout(r)
+	defer cancel()
+
+	since := r.URL.Query().Get("since")
+	if since == "" {
+		since = eval.DefaultSince
+	}
+	report, err := eval.LoadEvalReport(ctx, h.pool, since)
+	if err != nil {
+		http.Error(w, "load: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	data := map[string]any{
+		"Report":    report,
+		"Since":     report.Since, // post-fallback canonical value
+		"SinceOpts": eval.AllowedSinces,
+	}
+	if h.statusH != nil {
+		data = h.statusH.WithStatus(r, data)
+	}
+	h.render.Render(w, http.StatusOK, "eval/index", data)
 }
 
 // ReplayList handles GET /eval/replays. Implemented in Task 11.

@@ -1,4 +1,61 @@
 {{ define "content" }}
-  <h1 class="text-xl mb-4">灰度评估</h1>
-  <p class="text-gray-500">Phase 1 — 实现中</p>
+<div class="space-y-6">
+  <div class="flex items-center justify-between">
+    <h1 class="text-2xl font-bold">灰度评估</h1>
+    <form method="get" action="/eval" class="flex items-center gap-2">
+      <label class="text-sm">窗口:</label>
+      <select name="since" onchange="this.form.submit()" class="border rounded px-2 py-1 bg-white">
+        {{ range .SinceOpts }}
+          <option value="{{ . }}" {{ if eq . $.Since }}selected{{ end }}>{{ . }}</option>
+        {{ end }}
+      </select>
+    </form>
+  </div>
+
+  <div class="bg-white shadow rounded p-4">
+    <h2 class="font-semibold mb-3">Score-Bucket × PnL</h2>
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-left border-b">
+          <th class="py-1">Bucket</th>
+          <th class="py-1">Signals</th>
+          <th class="py-1">Trades</th>
+          <th class="py-1">Wins</th>
+          <th class="py-1 text-right">Win Rate</th>
+          <th class="py-1 text-right">Sum PnL</th>
+          <th class="py-1 text-right">Avg PnL</th>
+        </tr>
+      </thead>
+      <tbody>
+      {{ range .Report.Buckets }}
+        <tr class="border-b">
+          <td class="py-1">{{ .Label }}</td>
+          <td class="py-1">{{ .Signals }}</td>
+          <td class="py-1">{{ .Trades }}</td>
+          <td class="py-1">{{ .Wins }}</td>
+          <td class="py-1 text-right">{{ if gt .Trades 0 }}{{ printf "%.1f%%" .WinRate }}{{ else }}—{{ end }}</td>
+          <td class="py-1 text-right">{{ printf "%.2f" .SumPnL }}</td>
+          <td class="py-1 text-right">{{ if gt .Trades 0 }}{{ printf "%.2f" .AvgPnL }}{{ else }}—{{ end }}</td>
+        </tr>
+      {{ end }}
+      </tbody>
+    </table>
+    <p class="mt-3 text-sm text-gray-600">
+      总 Signals: <b>{{ .Report.TotalSignals }}</b> ·
+      总 Trades: <b>{{ .Report.TotalTrades }}</b> ·
+      Spearman:
+      <b>{{ if gt .Report.TotalTrades 1 }}{{ printf "%.4f" .Report.Spearman }}{{ else }}—{{ end }}</b>
+    </p>
+  </div>
+
+  <div class="bg-white shadow rounded p-4">
+    <h2 class="font-semibold mb-3">LLM 调用健康({{ .Since }})</h2>
+    <div class="grid grid-cols-4 gap-4 text-sm">
+      <div>Total: <b>{{ .Report.LLMHealth.TotalCalls }}</b></div>
+      <div>Failed: <b>{{ .Report.LLMHealth.FailedCalls }}</b></div>
+      <div>Failure Rate: <b>{{ printf "%.1f%%" .Report.LLMHealth.FailureRate }}</b></div>
+      <div>Avg / P95: <b>{{ .Report.LLMHealth.AvgLatencyMs }}ms / {{ .Report.LLMHealth.P95LatencyMs }}ms</b></div>
+    </div>
+  </div>
+</div>
 {{ end }}
