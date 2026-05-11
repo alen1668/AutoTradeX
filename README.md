@@ -31,6 +31,7 @@
 - 重启自动 disarm，必须手动点「启动交易」才会接单
 - 飞书 + Telegram 双渠道告警
 - Web 后台改配置实时生效（部分需重启，UI 有标注）
+- **`/eval` 评估面板**：浏览灰度期 score-bucket × 实际 PnL 报告；浏览 / 查看历次 replay 实验（agent prompt A/B 调优用，结果自动入库归档）
 
 ---
 
