@@ -188,7 +188,7 @@ func runReplayPersisted(
 		PromptText:   string(tmplBytes),
 		PromptName:   &promptName,
 		PromptSHA256: promptSHA,
-		Status:       "pending",
+		Status:       "running", // never 'pending' — Phase 2 worker polls pending; cmd must not race
 	})
 	if err != nil {
 		fail("create run: %v", err)
