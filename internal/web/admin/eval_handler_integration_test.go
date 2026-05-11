@@ -142,6 +142,48 @@ func TestEvalHandler_ReplayDetail_EscapesPrompt(t *testing.T) {
 	require.Contains(t, w.Body.String(), `&lt;script&gt;`)
 }
 
+func TestEvalHandler_RowsPartial_ReturnsHTMLFragment(t *testing.T) {
+	pool := newEvalTestPool(t)
+	renderer, _ := NewRenderer()
+	h := NewEvalHandler(renderer, pool)
+	r := chi.NewRouter()
+	r.Get("/eval/replays/{id}/rows", h.ReplayRowsPartial)
+
+	store := eval.NewStore(pool)
+	runID, _ := store.CreateRun(context.Background(), eval.ReplayRun{
+		SinceWindow:  "7d",
+		SinceCutoff:  time.Now().Unix(),
+		Model:        "m",
+		PromptText:   "p",
+		PromptSHA256: "sha",
+		Status:       "running",
+	})
+	var sigID int64
+	err := pool.QueryRow(context.Background(), `
+INSERT INTO signals (strategy_id, symbol, kind, signal_price, tv_timestamp_ms,
+                     raw_payload, decision, trace_id)
+VALUES ('s', 'BTCUSDT', 'long', 50000, $1, '{}'::jsonb, 'accepted', 'tx')
+RETURNING id`, time.Now().UnixMilli()).Scan(&sigID)
+	require.NoError(t, err)
+
+	pnl := 5.5
+	require.NoError(t, store.InsertRow(context.Background(), runID, eval.ReplayRow{
+		SignalID: sigID, NewScore: 80, OldScore: 30, PnLUSDC: &pnl,
+		NewDecision: "approve", OldDecision: "abandon",
+	}))
+
+	req := httptest.NewRequest("GET",
+		fmt.Sprintf("/eval/replays/%d/rows", runID), nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, "text/html; charset=utf-8", w.Header().Get("Content-Type"))
+	body := w.Body.String()
+	require.Contains(t, body, "BTCUSDT")
+	require.Contains(t, body, "50") // Δ = |80-30|
+	require.Contains(t, body, "5.50") // PnL
+}
+
 func TestEvalHandler_ReplayList_RendersRows(t *testing.T) {
 	pool := newEvalTestPool(t)
 	renderer, _ := NewRenderer()

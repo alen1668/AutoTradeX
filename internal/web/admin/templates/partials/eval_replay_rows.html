@@ -1,0 +1,33 @@
+{{ define "eval_replay_rows" }}
+<table class="w-full text-xs mt-2">
+  <thead>
+    <tr class="text-left border-b font-semibold">
+      <th class="py-1">signal_id</th>
+      <th class="py-1">时间</th>
+      <th class="py-1">币种</th>
+      <th class="py-1">prod_score</th>
+      <th class="py-1">replay_score</th>
+      <th class="py-1">Δ</th>
+      <th class="py-1 text-right">PnL</th>
+      <th class="py-1">error</th>
+    </tr>
+  </thead>
+  <tbody>
+  {{ range .Rows }}
+    <tr class="border-b">
+      <td class="py-1">{{ .SignalID }}</td>
+      <td class="py-1">{{ unix2human .CreatedAt }}</td>
+      <td class="py-1">{{ .Symbol }}</td>
+      <td class="py-1">{{ .ProdScore }}</td>
+      <td class="py-1">{{ if .Error }}—{{ else }}{{ .ReplayScore }}{{ end }}</td>
+      <td class="py-1">{{ .Delta }}</td>
+      <td class="py-1 text-right">{{ if .HasPnL }}{{ printf "%.2f" .PnL }}{{ else }}—{{ end }}</td>
+      <td class="py-1 text-red-700">{{ .Error }}</td>
+    </tr>
+  {{ end }}
+  </tbody>
+</table>
+<p class="text-xs text-gray-500 mt-2">
+  显示 {{ .Total }} 条(按 |Δscore| 降序;最多 200 条上限。完整 CSV 导出留待 Phase 2)
+</p>
+{{ end }}

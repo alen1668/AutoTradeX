@@ -116,11 +116,100 @@ func (h *EvalHandler) ReplayDetail(w http.ResponseWriter, r *http.Request) {
 	h.render.Render(w, http.StatusOK, "eval/replays_detail", data)
 }
 
+// evalRowView is the per-signal row DTO rendered into the lazy HTMX partial.
+// Distinct from eval.ReplayRow so we can join the signals table inline
+// without overloading eval.ReplayRow.Kind.
+type evalRowView struct {
+	SignalID    int64
+	Symbol      string
+	CreatedAt   int64 // unix seconds; rendered via unix2human
+	ProdScore   int
+	ReplayScore int
+	Delta       int     // ABS(ReplayScore - ProdScore)
+	PnL         float64 // 0 when HasPnL=false
+	HasPnL      bool
+	Error       string
+}
+
 // ReplayRowsPartial handles GET /eval/replays/{id}/rows (HTMX lazy fragment).
-// Implemented in Task 13.
+// Returns up to 200 rows ordered by |Δscore| DESC, hydrated with signal
+// symbol + created_at via a single JOIN against signals.
 func (h *EvalHandler) ReplayRowsPartial(w http.ResponseWriter, r *http.Request) {
-	_ = chi.URLParam(r, "id")
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	ctx, cancel := withTimeout(r)
+	defer cancel()
+
+	id := parseInt64ID(r)
+	if id <= 0 {
+		http.NotFound(w, r)
+		return
+	}
+	rows, err := h.store.ListRows(ctx, id, 200)
+	if err != nil {
+		http.Error(w, "load: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+
+	views := make([]evalRowView, len(rows))
+	for i, rr := range rows {
+		delta := rr.NewScore - rr.OldScore
+		if delta < 0 {
+			delta = -delta
+		}
+		v := evalRowView{
+			SignalID:    rr.SignalID,
+			ProdScore:   rr.OldScore,
+			ReplayScore: rr.NewScore,
+			Delta:       delta,
+			HasPnL:      rr.HasPnL,
+			Error:       rr.Error,
+		}
+		if rr.PnLUSDC != nil {
+			v.PnL = *rr.PnLUSDC
+		}
+		views[i] = v
+	}
+
+	// Hydrate symbol + created_at in one query.
+	if len(views) > 0 {
+		ids := make([]int64, len(views))
+		for i, v := range views {
+			ids[i] = v.SignalID
+		}
+		meta := map[int64]struct {
+			Symbol string
+			Unix   int64
+		}{}
+		qrows, qerr := h.pool.Query(ctx, `
+SELECT id, symbol, extract(epoch from received_at)::bigint
+FROM signals WHERE id = ANY($1)`, ids)
+		if qerr == nil {
+			defer qrows.Close()
+			for qrows.Next() {
+				var sid int64
+				var sym string
+				var ts int64
+				if scanErr := qrows.Scan(&sid, &sym, &ts); scanErr == nil {
+					meta[sid] = struct {
+						Symbol string
+						Unix   int64
+					}{sym, ts}
+				}
+			}
+		}
+		for i, v := range views {
+			if m, ok := meta[v.SignalID]; ok {
+				views[i].Symbol = m.Symbol
+				views[i].CreatedAt = m.Unix
+			}
+		}
+	}
+
+	if err := h.render.RenderPartial(w, "eval_replay_rows", map[string]any{
+		"Rows":  views,
+		"Total": len(views),
+	}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 // withTimeout shortens r.Context() to 5s; used by all eval queries.
