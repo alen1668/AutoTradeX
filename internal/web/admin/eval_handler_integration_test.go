@@ -285,6 +285,20 @@ func TestEvalHandler_ReplayDetail_AbortedShowsNotice(t *testing.T) {
 		"aborted state must NOT poll")
 }
 
+func TestEvalHandler_ReplayList_HasNewButton(t *testing.T) {
+	pool := newEvalTestPool(t)
+	renderer, _ := NewRenderer()
+	h := NewEvalHandler(renderer, pool)
+
+	req := httptest.NewRequest("GET", "/eval/replays", nil)
+	w := httptest.NewRecorder()
+	h.ReplayList(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	require.Contains(t, body, `href="/eval/replays/new"`)
+	require.Contains(t, body, "新建 Replay")
+}
+
 func TestEvalHandler_ReplayDetail_DoneStopsPolling(t *testing.T) {
 	pool := newEvalTestPool(t)
 	renderer, _ := NewRenderer()

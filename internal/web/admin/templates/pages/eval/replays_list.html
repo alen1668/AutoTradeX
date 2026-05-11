@@ -1,8 +1,11 @@
 {{ define "content" }}
 <div class="space-y-4">
-  <div>
-    <a href="/eval" class="text-blue-600 hover:underline text-sm">← 返回灰度评估</a>
-    <h1 class="text-2xl font-bold mt-1">Replay 历史</h1>
+  <div class="flex items-center justify-between">
+    <div>
+      <a href="/eval" class="text-blue-600 hover:underline text-sm">← 返回灰度评估</a>
+      <h1 class="text-2xl font-bold mt-1">Replay 历史</h1>
+    </div>
+    <a href="/eval/replays/new" class="px-3 py-2 bg-blue-600 text-white text-sm rounded">+ 新建 Replay</a>
   </div>
 
   {{ if not .Runs }}
