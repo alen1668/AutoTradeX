@@ -217,12 +217,7 @@ func (w *Worker) sendCritical(ctx context.Context, runID int64, msg string) {
 		return
 	}
 	w.lastCriticalAt = time.Now()
-	if err := w.notif.Send(ctx, notify.Message{
-		Title:    fmt.Sprintf("Replay run #%d failed", runID),
-		Body:     msg,
-		Severity: notify.SeverityCritical,
-		Fields:   map[string]any{"run_id": runID},
-	}); err != nil {
+	if err := w.notif.Send(ctx, notify.ReplayRunFailedMessage(runID, msg)); err != nil {
 		w.log.Warn().Err(err).Msg("worker: feishu send failed")
 	}
 }

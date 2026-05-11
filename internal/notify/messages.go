@@ -379,3 +379,16 @@ func BuildGhostPositionMessage(symbol, qty, entryPrice string) Message {
 		Severity: SeverityCritical,
 	}
 }
+
+// ReplayRunFailedMessage builds the critical-severity notification used by
+// the Phase 2 web replay worker when a run is marked failed (bad prompt,
+// 100% LLM failures, mark-done DB error, panic). Body links back to the
+// run detail page so the on-call can click straight to context.
+func ReplayRunFailedMessage(runID int64, reason string) Message {
+	return Message{
+		Title:    fmt.Sprintf("Replay run #%d failed", runID),
+		Body:     fmt.Sprintf("%s\n\n详情: /eval/replays/%d", reason, runID),
+		Severity: SeverityCritical,
+		Fields:   map[string]any{"run_id": runID},
+	}
+}

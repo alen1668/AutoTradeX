@@ -214,3 +214,12 @@ func TestBuildAgentAPIKeyMissingMessage(t *testing.T) {
 	assert.Contains(t, m.Title, "API key")
 	assert.Contains(t, m.Body, "/settings")
 }
+
+func TestReplayRunFailedMessage(t *testing.T) {
+	m := ReplayRunFailedMessage(42, "all 3 samples failed (model=claude-sonnet-4-6)")
+	assert.Equal(t, "Replay run #42 failed", m.Title)
+	assert.Equal(t, SeverityCritical, m.Severity)
+	assert.Contains(t, m.Body, "all 3 samples failed")
+	assert.Contains(t, m.Body, "/eval/replays/42")
+	assert.Equal(t, int64(42), m.Fields["run_id"])
+}
