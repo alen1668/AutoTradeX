@@ -16,6 +16,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
+	"github.com/lizhaojie/tvbot/internal/agent/macrocontext"
 	sigpkg "github.com/lizhaojie/tvbot/internal/domain/signal"
 	"github.com/lizhaojie/tvbot/internal/domain/strategy"
 )
@@ -38,7 +39,8 @@ type ScoreInput struct {
 	StrategyHistory []HistoricalTrade
 	Portfolio       *PortfolioSnapshot
 	Market          *MarketContext
-	HighVolWindows  []string // never fails (pure local function)
+	HighVolWindows  []string                  // never fails (pure local function)
+	Macro           macrocontext.MacroContext // sub-fields nil → prompt renders "暂不可用"
 }
 
 // HistoricalTrade summarizes one closed trade for the LLM. Fields chosen

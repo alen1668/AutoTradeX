@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/lizhaojie/tvbot/internal/agent/macrocontext"
 	sigpkg "github.com/lizhaojie/tvbot/internal/domain/signal"
 	"github.com/lizhaojie/tvbot/internal/domain/strategy"
 )
@@ -178,4 +179,42 @@ func TestRenderPromptWithTemplate_NilStrategy(t *testing.T) {
 	tmpl := template.Must(template.New("x").Parse("noop"))
 	_, _, err := RenderPromptWithTemplate(in, tmpl)
 	require.Error(t, err)
+}
+
+func TestRenderPrompt_MacroAllPresent(t *testing.T) {
+	in := fixedInput()
+	in.Macro = macrocontext.MacroContext{
+		Regime: &macrocontext.Regime{
+			Label:          "range",
+			TrendStrength:  decimal.NewFromFloat(0.1),
+			VolatilityPctl: decimal.NewFromFloat(0.4),
+			Change24hPct:   decimal.NewFromFloat(-1.5),
+			PriceRangePos:  decimal.NewFromFloat(0.55),
+			StaleMinutes:   12,
+		},
+		Events: []macrocontext.Event{
+			{Name: "CPI m/m", Currency: "USD", Impact: "High", MinutesTo: 20, RelativeText: "还有 20 分钟"},
+		},
+		News: &macrocontext.NewsAlert{Impact: "high", Summary: "整体偏空", StaleMinutes: 5},
+	}
+	rendered, _, err := RenderPrompt(in)
+	require.NoError(t, err)
+	assert.Contains(t, rendered, "BTC regime: range")
+	assert.Contains(t, rendered, "数据陈旧: 12 分钟前测得")
+	assert.Contains(t, rendered, "CPI m/m (USD, High): 还有 20 分钟")
+	assert.Contains(t, rendered, "影响等级: high")
+	assert.Contains(t, rendered, "整体偏空")
+}
+
+func TestRenderPrompt_MacroAllNil_RendersUnavailable(t *testing.T) {
+	in := fixedInput() // zero Macro
+	rendered, _, err := RenderPrompt(in)
+	require.NoError(t, err)
+	for _, want := range []string{
+		"BTC regime 数据暂不可用",
+		"最近 ±1h 无高重要性宏观事件",
+		"新闻数据暂不可用",
+	} {
+		assert.Contains(t, rendered, want, "fallback line missing")
+	}
 }

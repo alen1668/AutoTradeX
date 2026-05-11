@@ -35,6 +35,28 @@
 最近 24 根 1h 收盘价: {{.Input.Market.KlineLookback1h}}
 {{else}}市场数据暂不可用
 {{end}}
+【宏观市场状态】
+{{if .Input.Macro.Regime -}}
+BTC regime: {{.Input.Macro.Regime.Label}} (强度 {{.Input.Macro.Regime.TrendStrength}})
+BTC 24h 涨跌: {{.Input.Macro.Regime.Change24hPct}}%
+24h 波动率分位: {{.Input.Macro.Regime.VolatilityPctl}} (相对最近 30 天)
+BTC 当前在 24h 区间位置: {{.Input.Macro.Regime.PriceRangePos}}
+数据陈旧: {{.Input.Macro.Regime.StaleMinutes}} 分钟前测得
+{{else}}BTC regime 数据暂不可用
+{{end}}
+【近期重要事件窗口】
+{{if .Input.Macro.Events -}}
+{{range .Input.Macro.Events -}}
+- {{.Name}} ({{.Currency}}, {{.Impact}}): {{.RelativeText}}
+{{end -}}
+{{else}}最近 ±1h 无高重要性宏观事件
+{{end}}
+【加密新闻警报】
+{{if .Input.Macro.News -}}
+影响等级: {{.Input.Macro.News.Impact}}
+{{.Input.Macro.News.StaleMinutes}} 分钟前测: {{.Input.Macro.News.Summary}}
+{{else}}新闻数据暂不可用
+{{end}}
 【高波动时段标识】
 {{if .Input.HighVolWindows}}当前命中: {{.Input.HighVolWindows}} (信号在该时段需更谨慎)
 {{else}}非已知高波动时段
@@ -45,6 +67,7 @@
 3. 当前价格位置 / 波动率是否极端 (例如已位于 24h 极端区间或波动率异常高)?
 4. 是否处于高波动时段 (新闻、事件驱动可能放大策略失效)?
 5. 信号方向与近期获胜方向是否一致?
+6. BTC 大盘 regime 是否与该信号方向兼容? 是否处于事件窗口或新闻 high impact 状态?
 
 请严格返回以下 JSON,不要包含任何额外文字、解释或代码块标记:
 {"score": <0-100整数>, "decision": "approve" 或 "abandon", "reasoning": "<≤300字理由>"}
