@@ -1,0 +1,35 @@
+{
+  "count": 3,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": 1,
+      "title": "SEC sues XYZ Exchange over unregistered securities",
+      "url": "https://example.com/sec-xyz",
+      "domain": "example.com",
+      "source": {"title": "CoinDesk", "domain": "coindesk.com"},
+      "published_at": "2026-05-11T12:00:00Z",
+      "currencies": [{"code": "BTC"}, {"code": "ETH"}],
+      "votes": {"positive": 1, "important": 12, "negative": 4}
+    },
+    {
+      "id": 2,
+      "title": "Foundation announces $50M grant program",
+      "url": "https://example.com/grant",
+      "source": {"title": "TheBlock"},
+      "published_at": "2026-05-11T12:30:00Z",
+      "currencies": [{"code": "BTC"}],
+      "votes": {}
+    },
+    {
+      "id": 3,
+      "title": "Daily Bitcoin price analysis - May 11",
+      "url": "https://example.com/analysis",
+      "source": {"title": "RandomBlog"},
+      "published_at": "2026-05-11T12:45:00Z",
+      "currencies": [{"code": "BTC"}],
+      "votes": {}
+    }
+  ]
+}
