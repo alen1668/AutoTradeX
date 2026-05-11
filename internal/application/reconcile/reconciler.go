@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/shopspring/decimal"
 
+	"github.com/lizhaojie/tvbot/internal/eval"
 	"github.com/lizhaojie/tvbot/internal/notify"
 	"github.com/lizhaojie/tvbot/internal/store"
 	"github.com/lizhaojie/tvbot/internal/trade"
@@ -25,6 +26,14 @@ type Reconciler struct {
 	notifier    notify.Notifier
 	log         zerolog.Logger
 	interval    time.Duration
+
+	publisher eval.Publisher // nil-safe Phase 3 SSE wiring
+}
+
+// WithPublisher wires the Phase 3 SSE broker. nil is accepted (no-op).
+func (r *Reconciler) WithPublisher(p eval.Publisher) *Reconciler {
+	r.publisher = p
+	return r
 }
 
 // New creates a Reconciler. interval controls how often the exchange is polled.
@@ -150,7 +159,7 @@ func (r *Reconciler) writeHistory(ctx context.Context, vp *store.VirtualPosition
 		pnlPct = pnl.Div(vp.EntryFillPrice.Mul(exitQty)).Mul(decimal.NewFromInt(100))
 	}
 	now := time.Now().UTC()
-	return r.historyRepo.Insert(ctx, r.pool, store.PositionHistoryRow{
+	row := store.PositionHistoryRow{
 		StrategyID: vp.StrategyID, Symbol: vp.Symbol, Side: vp.Side, Qty: exitQty,
 		EntrySignalPrice: vp.EntrySignalPrice, EntryFillPrice: vp.EntryFillPrice,
 		ExitSignalPrice:  exitPrice, ExitFillPrice: exitPrice,
@@ -158,7 +167,22 @@ func (r *Reconciler) writeHistory(ctx context.Context, vp *store.VirtualPosition
 		CloseReason:      reason,
 		DurationSeconds:  int(now.Sub(vp.OpenedAt).Seconds()),
 		OpenedAt:         vp.OpenedAt, ClosedAt: now,
-	})
+	}
+	if err := r.historyRepo.Insert(ctx, r.pool, row); err != nil {
+		return err
+	}
+	// Phase 3: push trade_closed after successful Insert. publisher is
+	// nil-safe; this is fire-and-forget.
+	if r.publisher != nil {
+		pnlFloat, _ := row.PnLUSDC.Float64()
+		r.publisher.Publish(eval.EvalEvent{
+			Kind:       "trade_closed",
+			Symbol:     row.Symbol,
+			PnLUSDC:    &pnlFloat,
+			OccurredAt: time.Now().Unix(),
+		})
+	}
+	return nil
 }
 
 func isProtective(purpose string) bool {
