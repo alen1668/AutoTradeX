@@ -361,8 +361,15 @@ func main() {
 	// ── Phase 2 replay worker ────────────────────────────────────────────────
 	// Polls replay_runs WHERE status='pending' every 1s. Web form is the only
 	// pending-row producer; cmd/agent-eval --replay creates 'running' directly.
+	//
+	// Timeout: system_state.agent_scorer_timeout_ms is tuned for production
+	// Haiku (5 s default), but replay can pick Sonnet/Opus which need more
+	// headroom. Floor at 60 s here so model choice never deadlines a request.
 	{
 		apiKey, scorerModel, baseURL, timeoutMs := evalpkg.LoadLLMConfig(shutCtx, pool)
+		if timeoutMs < 60_000 {
+			timeoutMs = 60_000
+		}
 		llmClient := evalpkg.MakeLLMClient(apiKey, baseURL)
 		replayWorker := evalpkg.NewWorker(pool, llmClient, scorerModel, timeoutMs, notifier, logger)
 		go replayWorker.Run(shutCtx)
