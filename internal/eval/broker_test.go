@@ -1,6 +1,8 @@
 package eval
 
 import (
+	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -8,6 +10,24 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 )
+
+func TestEvalEvent_NewsAlertFieldsJSONOmitEmpty(t *testing.T) {
+	// Existing kinds must not emit news fields.
+	e := EvalEvent{Kind: "agent_score", SignalID: 7, OccurredAt: 1}
+	b, _ := json.Marshal(e)
+	if strings.Contains(string(b), "snapshot_id") || strings.Contains(string(b), `"impact"`) {
+		t.Errorf("agent_score should omit news fields: %s", string(b))
+	}
+	// news_alert must include snapshot_id + impact.
+	e2 := EvalEvent{Kind: "news_alert", SnapshotID: 42, Impact: "high", OccurredAt: 2}
+	b2, _ := json.Marshal(e2)
+	if !strings.Contains(string(b2), `"snapshot_id":42`) {
+		t.Errorf("news_alert missing snapshot_id: %s", string(b2))
+	}
+	if !strings.Contains(string(b2), `"impact":"high"`) {
+		t.Errorf("news_alert missing impact: %s", string(b2))
+	}
+}
 
 func TestBroker_SubscribeReturnsDistinctIDs(t *testing.T) {
 	b := NewBroker(zerolog.Nop())

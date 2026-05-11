@@ -10,13 +10,15 @@ import (
 // EvalEvent is the payload pushed to SSE clients. Json fields are stable
 // public contract for the front-end eval-stream.js.
 type EvalEvent struct {
-	Kind       string   `json:"kind"` // "agent_score" | "trade_closed"
+	Kind       string   `json:"kind"` // "agent_score" | "trade_closed" | "news_alert"
 	SignalID   int64    `json:"signal_id,omitempty"`
 	Symbol     string   `json:"symbol,omitempty"`
 	AgentScore *int     `json:"agent_score,omitempty"`
 	Decision   string   `json:"decision,omitempty"` // approve | abandon | failed
 	LatencyMs  int      `json:"latency_ms,omitempty"`
 	PnLUSDC    *float64 `json:"pnl_usdc,omitempty"` // trade_closed only
+	SnapshotID int64    `json:"snapshot_id,omitempty"` // news_alert: news_snapshots.id
+	Impact     string   `json:"impact,omitempty"`      // news_alert: high|medium|low|none
 	OccurredAt int64    `json:"occurred_at"`        // unix epoch seconds
 }
 
