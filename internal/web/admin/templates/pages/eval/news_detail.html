@@ -1,0 +1,115 @@
+{{ define "content" }}
+<div class="space-y-6">
+  <div>
+    <a href="/eval/news" class="text-blue-600 hover:underline text-sm">← 返回 News 历史</a>
+    <h1 class="text-2xl font-bold mt-1">News 评估 #{{ .Rec.ID }}</h1>
+  </div>
+
+  {{ if .HasError }}
+  <div class="bg-red-50 border border-red-300 rounded p-3 text-sm">
+    <p class="font-semibold text-red-800">❌ 本次评估失败（已写入审计记录）</p>
+    <p class="text-red-700 mt-1 font-mono text-xs">{{ .ErrorMessage }}</p>
+  </div>
+  {{ end }}
+
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+    <div class="bg-white shadow rounded p-3">
+      <p class="text-xs text-gray-500">整体 impact</p>
+      <p class="text-2xl font-bold mt-1">
+        {{ if eq .Rec.Impact "high" }}<span class="text-red-700">HIGH</span>
+        {{ else if eq .Rec.Impact "medium" }}<span class="text-orange-700">MEDIUM</span>
+        {{ else if eq .Rec.Impact "low" }}<span class="text-yellow-700">low</span>
+        {{ else if eq .Rec.Impact "none" }}<span class="text-gray-500">none</span>
+        {{ else }}{{ .Rec.Impact }}{{ end }}
+      </p>
+    </div>
+    <div class="bg-white shadow rounded p-3">
+      <p class="text-xs text-gray-500">测得时间 (UTC)</p>
+      <p class="text-sm font-mono mt-1">{{ unix2human .MeasuredAtUnix }}</p>
+    </div>
+    <div class="bg-white shadow rounded p-3">
+      <p class="text-xs text-gray-500">LLM 模型</p>
+      <p class="text-sm font-mono mt-1 truncate" title="{{ .Rec.LLMModel }}">{{ .Rec.LLMModel }}</p>
+      <p class="text-xs text-gray-500 mt-1">prompt: <code>{{ .Rec.PromptHash }}</code></p>
+    </div>
+    <div class="bg-white shadow rounded p-3">
+      <p class="text-xs text-gray-500">Token / 延迟</p>
+      <p class="text-sm mt-1">{{ .TokenIn }} in · {{ .TokenOut }} out</p>
+      <p class="text-xs text-gray-500 mt-1">{{ .LatencyMs }} ms</p>
+    </div>
+  </div>
+
+  {{ if .Rec.Summary }}
+  <div class="bg-blue-50 border border-blue-200 rounded p-4">
+    <h2 class="text-sm font-semibold text-blue-900 mb-2">📝 喂给 scorer 的一句话（summary）</h2>
+    <p class="text-sm leading-relaxed">{{ .Rec.Summary }}</p>
+  </div>
+  {{ end }}
+
+  {{ if .Rec.Reasoning }}
+  <div class="bg-white shadow rounded p-4">
+    <h2 class="text-sm font-semibold mb-2">🧠 LLM 的判定依据（reasoning）</h2>
+    <p class="text-sm leading-relaxed whitespace-pre-wrap">{{ .Rec.Reasoning }}</p>
+  </div>
+  {{ end }}
+
+  <div class="bg-white shadow rounded p-4">
+    <h2 class="text-sm font-semibold mb-3">📰 每条新闻的独立评级</h2>
+    {{ if not .Headlines }}
+      <p class="text-sm text-gray-500">（无 per_headline 数据，常见于失败行或空新闻列表）</p>
+    {{ else }}
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-left">
+        <tr>
+          <th class="px-2 py-1 w-10">#</th>
+          <th class="px-2 py-1 w-20">impact</th>
+          <th class="px-2 py-1 w-24">source</th>
+          <th class="px-2 py-1">title / reason</th>
+        </tr>
+      </thead>
+      <tbody>
+      {{ range .Headlines }}
+        <tr class="border-t align-top">
+          <td class="px-2 py-2 text-gray-500">{{ .Index }}</td>
+          <td class="px-2 py-2">
+            {{ if eq .Impact "high" }}<span class="px-1.5 py-0.5 bg-red-100 text-red-800 rounded text-xs font-semibold">HIGH</span>
+            {{ else if eq .Impact "medium" }}<span class="px-1.5 py-0.5 bg-orange-100 text-orange-800 rounded text-xs">MEDIUM</span>
+            {{ else if eq .Impact "low" }}<span class="px-1.5 py-0.5 bg-yellow-50 text-yellow-700 rounded text-xs">low</span>
+            {{ else }}<span class="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">{{ .Impact }}</span>{{ end }}
+          </td>
+          <td class="px-2 py-2 text-xs text-gray-600">{{ .Source }}</td>
+          <td class="px-2 py-2">
+            {{ if .URL }}<a href="{{ .URL }}" target="_blank" class="text-blue-600 hover:underline">{{ .Title }}</a>
+            {{ else }}{{ .Title }}{{ end }}
+            <p class="text-xs text-gray-600 mt-1 italic">{{ .Reason }}</p>
+          </td>
+        </tr>
+      {{ end }}
+      </tbody>
+    </table>
+    {{ end }}
+  </div>
+
+  <details class="bg-white shadow rounded p-4">
+    <summary class="cursor-pointer text-sm font-semibold">📤 完整 prompt（喂给 LLM 的文本）</summary>
+    <pre class="text-xs bg-gray-50 mt-3 p-3 rounded overflow-auto max-h-96 whitespace-pre-wrap">{{ .Rec.PromptText }}</pre>
+  </details>
+
+  {{ if .ResponseRaw }}
+  <details class="bg-white shadow rounded p-4">
+    <summary class="cursor-pointer text-sm font-semibold">📥 LLM 原始 response</summary>
+    <pre class="text-xs bg-gray-50 mt-3 p-3 rounded overflow-auto max-h-96 whitespace-pre-wrap">{{ .ResponseRaw }}</pre>
+  </details>
+  {{ end }}
+
+  <details class="bg-white shadow rounded p-4">
+    <summary class="cursor-pointer text-sm font-semibold">🗃 per_headline JSON（写入 DB 的原始结构）</summary>
+    <pre class="text-xs bg-gray-50 mt-3 p-3 rounded overflow-auto max-h-96">{{ .PrettyPer }}</pre>
+  </details>
+
+  <details class="bg-white shadow rounded p-4">
+    <summary class="cursor-pointer text-sm font-semibold">🗃 raw_headlines（cryptopanic 上游原文）</summary>
+    <pre class="text-xs bg-gray-50 mt-3 p-3 rounded overflow-auto max-h-96">{{ .PrettyRaw }}</pre>
+  </details>
+</div>
+{{ end }}

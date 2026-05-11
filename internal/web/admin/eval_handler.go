@@ -12,23 +12,27 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lizhaojie/tvbot/internal/eval"
+	"github.com/lizhaojie/tvbot/internal/store"
 )
 
 // EvalHandler renders /eval/* pages. All pages are read-only in Phase 1.
 type EvalHandler struct {
-	render  *Renderer
-	pool    *pgxpool.Pool
-	store   *eval.Store
-	broker  *eval.Broker   // nil-safe; when nil, /eval/stream returns 503
-	statusH *StatusHandler // injected later via WithStatus; nil-safe for tests
+	render   *Renderer
+	pool     *pgxpool.Pool
+	store    *eval.Store
+	newsRepo *store.NewsSnapshotsRepo
+	broker   *eval.Broker
+	statusH  *StatusHandler
 }
 
 func NewEvalHandler(r *Renderer, pool *pgxpool.Pool) *EvalHandler {
-	var store *eval.Store
+	var evalStore *eval.Store
+	var newsRepo *store.NewsSnapshotsRepo
 	if pool != nil {
-		store = eval.NewStore(pool)
+		evalStore = eval.NewStore(pool)
+		newsRepo = store.NewNewsSnapshotsRepo(pool)
 	}
-	return &EvalHandler{render: r, pool: pool, store: store}
+	return &EvalHandler{render: r, pool: pool, store: evalStore, newsRepo: newsRepo}
 }
 
 // WithStatus injects the global status handler so the layout can render the
@@ -323,6 +327,200 @@ FROM signals WHERE id = ANY($1)`, ids)
 	}); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+// newsListRow is the per-row DTO for the /eval/news list page.
+type newsListRow struct {
+	ID             int64
+	MeasuredAtUnix int64 // for the unix2human template helper
+	Impact         string
+	HeadlineCount  int
+	Summary        string
+	TokenIn        int
+	TokenOut       int
+	LatencyMs      int
+	ErrorMessage   string
+	HasError       bool
+}
+
+// NewsList handles GET /eval/news. Lists the most recent news_snapshots.
+// Cursor pagination via ?cursor=<id> (rows with id < cursor).
+func (h *EvalHandler) NewsList(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := withTimeout(r)
+	defer cancel()
+
+	var cursor int64
+	if c := r.URL.Query().Get("cursor"); c != "" {
+		_, _ = fmt.Sscanf(c, "%d", &cursor)
+	}
+	rows := []newsListRow{}
+	var nextCursor int64
+	if h.newsRepo != nil {
+		recs, err := h.newsRepo.ListRecent(ctx, h.pool, 50, cursor)
+		if err != nil {
+			http.Error(w, "list: "+err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		for _, rec := range recs {
+			var phCount int
+			if len(rec.PerHeadline) > 0 {
+				var arr []any
+				_ = json.Unmarshal(rec.PerHeadline, &arr)
+				phCount = len(arr)
+			}
+			row := newsListRow{
+				ID:             rec.ID,
+				MeasuredAtUnix: rec.MeasuredAt.Unix(),
+				Impact:         rec.Impact,
+				HeadlineCount:  phCount,
+				Summary:        rec.Summary,
+			}
+			if rec.LLMTokensIn != nil {
+				row.TokenIn = *rec.LLMTokensIn
+			}
+			if rec.LLMTokensOut != nil {
+				row.TokenOut = *rec.LLMTokensOut
+			}
+			if rec.LLMLatencyMs != nil {
+				row.LatencyMs = *rec.LLMLatencyMs
+			}
+			if rec.ErrorMessage != nil {
+				row.ErrorMessage = *rec.ErrorMessage
+				row.HasError = true
+			}
+			rows = append(rows, row)
+		}
+		if len(recs) == 50 {
+			nextCursor = recs[len(recs)-1].ID
+		}
+	}
+	data := map[string]any{
+		"Rows":       rows,
+		"NextCursor": nextCursor,
+		"HasRows":    len(rows) > 0,
+	}
+	if h.statusH != nil {
+		data = h.statusH.WithStatus(r, data)
+	}
+	h.render.Render(w, http.StatusOK, "eval/news_list", data)
+}
+
+// newsHeadlineView is one headline + judgment block for the detail page.
+type newsHeadlineView struct {
+	Index  int
+	Title  string
+	URL    string
+	Source string
+	Impact string
+	Reason string
+}
+
+// NewsDetail handles GET /eval/news/{id}. Renders the full audit trail for
+// one news_snapshots row: per_headline grid, reasoning, full prompt + raw
+// LLM response, raw cryptopanic JSON.
+func (h *EvalHandler) NewsDetail(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := withTimeout(r)
+	defer cancel()
+
+	id := parseInt64ID(r)
+	if id <= 0 {
+		http.NotFound(w, r)
+		return
+	}
+	if h.newsRepo == nil {
+		http.Error(w, "news repo not wired", http.StatusServiceUnavailable)
+		return
+	}
+	rec, err := h.newsRepo.Get(ctx, h.pool, id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// per_headline JSON → []newsHeadlineView (best-effort; corrupt JSON ⇒ empty list).
+	headlines := []newsHeadlineView{}
+	if len(rec.PerHeadline) > 0 {
+		var ph []map[string]any
+		if json.Unmarshal(rec.PerHeadline, &ph) == nil {
+			// raw_headlines holds the upstream "source" field; we join by index.
+			var raws []map[string]any
+			_ = json.Unmarshal(rec.RawHeadlines, &raws)
+			for i, h := range ph {
+				view := newsHeadlineView{Index: i}
+				if t, ok := h["title"].(string); ok {
+					view.Title = t
+				}
+				if u, ok := h["url"].(string); ok {
+					view.URL = u
+				}
+				if im, ok := h["impact"].(string); ok {
+					view.Impact = im
+				}
+				if r, ok := h["reason"].(string); ok {
+					view.Reason = r
+				}
+				if i < len(raws) {
+					if src, ok := raws[i]["source"].(map[string]any); ok {
+						if title, ok := src["title"].(string); ok {
+							view.Source = title
+						}
+					}
+				}
+				headlines = append(headlines, view)
+			}
+		}
+	}
+
+	// raw_headlines and per_headline pretty-printed for the detail toggles.
+	prettyRaw := prettyJSON(rec.RawHeadlines)
+	prettyPer := prettyJSON(rec.PerHeadline)
+
+	data := map[string]any{
+		"Rec":            rec,
+		"MeasuredAtUnix": rec.MeasuredAt.Unix(),
+		"Headlines":      headlines,
+		"PrettyRaw":      prettyRaw,
+		"PrettyPer":      prettyPer,
+		"HasError":       rec.ErrorMessage != nil,
+		"ErrorMessage":   safeStr(rec.ErrorMessage),
+		"ResponseRaw":    safeStr(rec.ResponseRaw),
+		"TokenIn":        safeInt(rec.LLMTokensIn),
+		"TokenOut":       safeInt(rec.LLMTokensOut),
+		"LatencyMs":      safeInt(rec.LLMLatencyMs),
+	}
+	if h.statusH != nil {
+		data = h.statusH.WithStatus(r, data)
+	}
+	h.render.Render(w, http.StatusOK, "eval/news_detail", data)
+}
+
+func prettyJSON(b []byte) string {
+	if len(b) == 0 {
+		return ""
+	}
+	var anyVal any
+	if err := json.Unmarshal(b, &anyVal); err != nil {
+		return string(b)
+	}
+	out, err := json.MarshalIndent(anyVal, "", "  ")
+	if err != nil {
+		return string(b)
+	}
+	return string(out)
+}
+
+func safeStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func safeInt(p *int) int {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 // withTimeout shortens r.Context() to 5s; used by all eval queries.
