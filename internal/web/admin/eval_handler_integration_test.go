@@ -398,3 +398,18 @@ func TestEvalHandler_Stream_503IfNoBroker(t *testing.T) {
 
 	require.Equal(t, http.StatusServiceUnavailable, w.Code)
 }
+
+func TestEvalHandler_Index_InjectsInitJSON(t *testing.T) {
+	pool := newEvalTestPool(t)
+	renderer, _ := NewRenderer()
+	h := NewEvalHandler(renderer, pool)
+
+	req := httptest.NewRequest("GET", "/eval", nil)
+	w := httptest.NewRecorder()
+	h.Index(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	require.Contains(t, body, "window.EVAL_INIT")
+	require.Contains(t, body, `"scores":`)
+	require.Contains(t, body, `"buckets":`)
+}

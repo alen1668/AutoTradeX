@@ -60,5 +60,9 @@
       <div>Avg / P95: <b>{{ .Report.LLMHealth.AvgLatencyMs }}ms / {{ .Report.LLMHealth.P95LatencyMs }}ms</b></div>
     </div>
   </div>
+
+  <script>
+  window.EVAL_INIT = {{ .InitJSON }};
+  </script>
 </div>
 {{ end }}

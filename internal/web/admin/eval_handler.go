@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"net/http"
 	"time"
 
@@ -102,10 +103,23 @@ func (h *EvalHandler) Index(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "load: "+err.Error(), http.StatusServiceUnavailable)
 		return
 	}
+
+	// Phase 3: 24h initial snapshot injected as window.EVAL_INIT so the
+	// front-end charts have content before the first SSE event lands.
+	init, ierr := eval.LoadInitSnapshot(ctx, h.pool)
+	if ierr != nil {
+		init = eval.InitData{} // degrade gracefully — charts start empty
+	}
+	initJSON, jerr := json.Marshal(init)
+	if jerr != nil {
+		initJSON = []byte("null")
+	}
+
 	data := map[string]any{
 		"Report":    report,
 		"Since":     report.Since, // post-fallback canonical value
 		"SinceOpts": eval.AllowedSinces,
+		"InitJSON":  template.JS(initJSON), // marked safe; we control the content
 	}
 	if h.statusH != nil {
 		data = h.statusH.WithStatus(r, data)
