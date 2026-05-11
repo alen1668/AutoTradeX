@@ -457,6 +457,30 @@ func TestEvalHandler_AB_DoneRun_RendersScatter(t *testing.T) {
 	require.Contains(t, body, "claude-sonnet-4-6")
 }
 
+func TestEvalHandler_ReplayDetail_Done_HasABLink(t *testing.T) {
+	pool := newEvalTestPool(t)
+	renderer, _ := NewRenderer()
+	h := NewEvalHandler(renderer, pool)
+	r := chi.NewRouter()
+	r.Get("/eval/replays/{id}", h.ReplayDetail)
+
+	store := eval.NewStore(pool)
+	id, _ := store.CreateRun(context.Background(), eval.ReplayRun{
+		SinceWindow: "1h", SinceCutoff: time.Now().Unix(),
+		Model: "claude-sonnet-4-6", PromptText: "p", PromptSHA256: "h",
+		Status: "running",
+	})
+	rep := eval.ReplayReport{SampleSize: 1}
+	require.NoError(t, store.MarkRunDone(context.Background(), id, &rep, 1, 0))
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/eval/replays/%d", id), nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	body := w.Body.String()
+	require.Contains(t, body, fmt.Sprintf(`href="/eval/ab/%d"`, id))
+	require.Contains(t, body, "查看 A/B 散点")
+}
+
 func TestEvalHandler_AB_NotDoneShowsHint(t *testing.T) {
 	pool := newEvalTestPool(t)
 	renderer, _ := NewRenderer()
