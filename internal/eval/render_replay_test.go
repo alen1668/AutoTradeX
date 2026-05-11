@@ -1,7 +1,4 @@
-//go:build never
-// +build never
-
-package main
+package eval
 
 import (
 	"bytes"
@@ -44,7 +41,7 @@ func sampleReport() ReplayReport {
 
 func TestRenderText_ContainsHeadlines(t *testing.T) {
 	var buf bytes.Buffer
-	require.NoError(t, renderReplayText(&buf, sampleReport()))
+	require.NoError(t, RenderText(&buf, sampleReport()))
 	out := buf.String()
 	assert.Contains(t, out, "Replay 报告")
 	assert.Contains(t, out, "prompts/v2.tmpl")
@@ -58,7 +55,7 @@ func TestRenderText_ContainsHeadlines(t *testing.T) {
 
 func TestRenderJSON_RoundTrip(t *testing.T) {
 	var buf bytes.Buffer
-	require.NoError(t, renderReplayJSON(&buf, sampleReport()))
+	require.NoError(t, RenderJSON(&buf, sampleReport()))
 	var back ReplayReport
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &back))
 	assert.Equal(t, "prompts/v2.tmpl", back.PromptFile)
@@ -69,7 +66,7 @@ func TestRenderJSON_RoundTrip(t *testing.T) {
 
 func TestRenderHTML_ContainsKeyMarkers(t *testing.T) {
 	var buf bytes.Buffer
-	require.NoError(t, renderReplayHTML(&buf, sampleReport()))
+	require.NoError(t, RenderHTML(&buf, sampleReport()))
 	out := buf.String()
 	assert.True(t, strings.Contains(out, "<html") || strings.Contains(out, "<body"))
 	assert.Contains(t, out, "prompts/v2.tmpl")
@@ -98,7 +95,7 @@ func TestRenderJSON_NaNBecomesNull(t *testing.T) {
 		},
 	}
 	var buf bytes.Buffer
-	require.NoError(t, renderReplayJSON(&buf, r),
+	require.NoError(t, RenderJSON(&buf, r),
 		"NaN floats must serialize without error")
 	out := buf.String()
 	assert.Contains(t, out, `"v1_spearman": null`)

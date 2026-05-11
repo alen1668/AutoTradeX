@@ -1,7 +1,4 @@
-//go:build never
-// +build never
-
-package main
+package eval
 
 import (
 	"bytes"
@@ -12,43 +9,6 @@ import (
 	"math"
 )
 
-// ReplayReport bundles all replay output. Tagged for stable JSON output —
-// the JSON contract is consumed by future automation (meta-prompt loops).
-type ReplayReport struct {
-	Since      string      `json:"since"`
-	PromptFile string      `json:"prompt_file"`
-	SampleSize int         `json:"sample_size"`
-	WithPnL    int         `json:"with_pnl"`
-	V1Spearman float64     `json:"v1_spearman"`
-	V2Spearman float64     `json:"v2_spearman"`
-	V1Buckets  []Bucket    `json:"v1_buckets"`
-	V2Buckets  []Bucket    `json:"v2_buckets"`
-	Flips      FlipMatrix  `json:"flips"`
-	Rows       []ReplayRow `json:"rows"`
-}
-
-// MarshalJSON for ReplayReport — turns NaN Spearman values into JSON null
-// (they're NaN when sample size < 2). Bucket and FlipMatrix have their own
-// MarshalJSON for their NaN fields.
-func (r ReplayReport) MarshalJSON() ([]byte, error) {
-	return json.Marshal(struct {
-		Since      string      `json:"since"`
-		PromptFile string      `json:"prompt_file"`
-		SampleSize int         `json:"sample_size"`
-		WithPnL    int         `json:"with_pnl"`
-		V1Spearman any         `json:"v1_spearman"`
-		V2Spearman any         `json:"v2_spearman"`
-		V1Buckets  []Bucket    `json:"v1_buckets"`
-		V2Buckets  []Bucket    `json:"v2_buckets"`
-		Flips      FlipMatrix  `json:"flips"`
-		Rows       []ReplayRow `json:"rows"`
-	}{
-		r.Since, r.PromptFile, r.SampleSize, r.WithPnL,
-		nilIfNaN(r.V1Spearman), nilIfNaN(r.V2Spearman),
-		r.V1Buckets, r.V2Buckets, r.Flips, r.Rows,
-	})
-}
-
 // fmtNaN formats v with layout, returning "—" when v is NaN.
 func fmtNaN(v float64, layout string) string {
 	if math.IsNaN(v) {
@@ -57,8 +17,8 @@ func fmtNaN(v float64, layout string) string {
 	return fmt.Sprintf(layout, v)
 }
 
-// renderReplayText writes the human-readable terminal report.
-func renderReplayText(w io.Writer, r ReplayReport) error {
+// RenderText writes the human-readable terminal replay report.
+func RenderText(w io.Writer, r ReplayReport) error {
 	fmt.Fprintf(w, "Replay 报告: %s vs 生产 prompt(v1)\n", r.PromptFile)
 	fmt.Fprintf(w, "样本: since=%s, 共 %d 条评估过的信号 (%d 条有 PnL)\n\n",
 		r.Since, r.SampleSize, r.WithPnL)
@@ -125,15 +85,15 @@ func flipLabel(old, new string) string {
 	return "?"
 }
 
-// renderReplayJSON writes the machine-readable JSON report.
-func renderReplayJSON(w io.Writer, r ReplayReport) error {
+// RenderJSON writes the machine-readable JSON report.
+func RenderJSON(w io.Writer, r ReplayReport) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(r)
 }
 
-// renderReplayHTML writes a self-contained HTML page with summary + per-signal collapsible reasoning.
-func renderReplayHTML(w io.Writer, r ReplayReport) error {
+// RenderHTML writes a self-contained HTML page with summary + per-signal collapsible reasoning.
+func RenderHTML(w io.Writer, r ReplayReport) error {
 	fmt.Fprintln(w, `<!doctype html><html><head><meta charset="utf-8"><title>Replay 报告</title>`)
 	fmt.Fprintln(w, `<style>body{font-family:system-ui;margin:2em;max-width:1100px}`)
 	fmt.Fprintln(w, `pre{background:#f4f4f4;padding:8px;overflow:auto}`)
@@ -144,7 +104,7 @@ func renderReplayHTML(w io.Writer, r ReplayReport) error {
 
 	fmt.Fprintln(w, `<h2>概要</h2><pre>`)
 	var textBuf bytes.Buffer
-	if err := renderReplayText(&textBuf, r); err != nil {
+	if err := RenderText(&textBuf, r); err != nil {
 		return err
 	}
 	fmt.Fprint(w, html.EscapeString(textBuf.String()))
