@@ -211,3 +211,99 @@ func TestEvalHandler_ReplayList_RendersRows(t *testing.T) {
 	require.Contains(t, body, "claude-sonnet-4-6")
 	require.Contains(t, body, "#1")
 }
+
+func TestEvalHandler_ReplayDetail_PendingShowsWaitingCard(t *testing.T) {
+	pool := newEvalTestPool(t)
+	renderer, _ := NewRenderer()
+	h := NewEvalHandler(renderer, pool)
+	r := chi.NewRouter()
+	r.Get("/eval/replays/{id}", h.ReplayDetail)
+
+	store := eval.NewStore(pool)
+	id, _ := store.CreateRun(context.Background(), eval.ReplayRun{
+		SinceWindow: "1h", SinceCutoff: time.Now().Unix(),
+		Model: "claude-sonnet-4-6", PromptText: "p", PromptSHA256: "h",
+		Status: "pending",
+	})
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/eval/replays/%d", id), nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	require.Contains(t, body, "等待执行")
+	// HTMX polling attribute present on pending state.
+	require.Contains(t, body, `hx-trigger="every 2s"`)
+}
+
+func TestEvalHandler_ReplayDetail_RunningShowsProgressBar(t *testing.T) {
+	pool := newEvalTestPool(t)
+	renderer, _ := NewRenderer()
+	h := NewEvalHandler(renderer, pool)
+	r := chi.NewRouter()
+	r.Get("/eval/replays/{id}", h.ReplayDetail)
+
+	store := eval.NewStore(pool)
+	id, _ := store.CreateRun(context.Background(), eval.ReplayRun{
+		SinceWindow: "1h", SinceCutoff: time.Now().Unix(),
+		Model: "claude-sonnet-4-6", PromptText: "p", PromptSHA256: "h",
+		Status: "running",
+	})
+	require.NoError(t, store.MarkRunRunning(context.Background(), id, 100))
+	require.NoError(t, store.UpdateProgress(context.Background(), id, 42, 1))
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/eval/replays/%d", id), nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	require.Contains(t, body, "42/100")
+	require.Contains(t, body, `hx-trigger="every 2s"`)
+}
+
+func TestEvalHandler_ReplayDetail_AbortedShowsNotice(t *testing.T) {
+	pool := newEvalTestPool(t)
+	renderer, _ := NewRenderer()
+	h := NewEvalHandler(renderer, pool)
+	r := chi.NewRouter()
+	r.Get("/eval/replays/{id}", h.ReplayDetail)
+
+	store := eval.NewStore(pool)
+	id, _ := store.CreateRun(context.Background(), eval.ReplayRun{
+		SinceWindow: "1h", SinceCutoff: time.Now().Unix(),
+		Model: "claude-sonnet-4-6", PromptText: "p", PromptSHA256: "h",
+		Status: "aborted",
+	})
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/eval/replays/%d", id), nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	require.Contains(t, body, "进程重启时被中止")
+	require.NotContains(t, body, `hx-trigger="every 2s"`,
+		"aborted state must NOT poll")
+}
+
+func TestEvalHandler_ReplayDetail_DoneStopsPolling(t *testing.T) {
+	pool := newEvalTestPool(t)
+	renderer, _ := NewRenderer()
+	h := NewEvalHandler(renderer, pool)
+	r := chi.NewRouter()
+	r.Get("/eval/replays/{id}", h.ReplayDetail)
+
+	store := eval.NewStore(pool)
+	id, _ := store.CreateRun(context.Background(), eval.ReplayRun{
+		SinceWindow: "1h", SinceCutoff: time.Now().Unix(),
+		Model: "claude-sonnet-4-6", PromptText: "p", PromptSHA256: "h",
+		Status: "running",
+	})
+	rep := eval.ReplayReport{SampleSize: 1}
+	require.NoError(t, store.MarkRunDone(context.Background(), id, &rep, 1, 0))
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/eval/replays/%d", id), nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	body := w.Body.String()
+	require.NotContains(t, body, `hx-trigger="every 2s"`)
+}

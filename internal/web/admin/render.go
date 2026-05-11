@@ -91,6 +91,16 @@ func funcMap() template.FuncMap {
 			// helper for embedding JSON in scripts (kept tiny for MVP)
 			return template.JS(fmt.Sprintf("%v", v)), nil
 		},
+		"percentOf": func(done, total int) int {
+			if total <= 0 {
+				return 0
+			}
+			p := done * 100 / total
+			if p > 100 {
+				return 100
+			}
+			return p
+		},
 		"sideCN": func(side string) string {
 			switch side {
 			case "long":

@@ -1,5 +1,11 @@
 {{ define "content" }}
-<div class="space-y-6">
+<div class="space-y-6"
+     {{ if or (eq .Run.Status "pending") (eq .Run.Status "running") }}
+       hx-get="/eval/replays/{{ .Run.ID }}"
+       hx-trigger="every 2s"
+       hx-select=".space-y-6"
+       hx-swap="outerHTML"
+     {{ end }}>
   <div>
     <a href="/eval/replays" class="text-blue-600 text-sm">← 返回列表</a>
     <h1 class="text-2xl font-bold mt-2">
@@ -11,6 +17,8 @@
         {{ if eq .Run.Status "done" }}<span class="text-green-700">done</span>
         {{ else if eq .Run.Status "failed" }}<span class="text-red-700">failed</span>
         {{ else if eq .Run.Status "running" }}<span class="text-blue-700">running</span>
+        {{ else if eq .Run.Status "pending" }}<span class="text-gray-500">pending</span>
+        {{ else if eq .Run.Status "aborted" }}<span class="text-gray-500">aborted</span>
         {{ else }}{{ .Run.Status }}{{ end }}
       </span>
     </h1>
@@ -21,7 +29,29 @@
     </p>
   </div>
 
-  {{ if .Run.Summary }}
+  {{ if eq .Run.Status "pending" }}
+    <div class="bg-blue-50 border border-blue-200 rounded p-4">
+      <h2 class="font-semibold text-blue-700">等待执行</h2>
+      <p class="text-sm mt-1">Worker 每秒轮询一次,通常 1-2 秒内进入 running 状态。</p>
+    </div>
+  {{ else if eq .Run.Status "running" }}
+    <div class="bg-blue-50 border border-blue-200 rounded p-4 space-y-2">
+      <h2 class="font-semibold text-blue-700">运行中</h2>
+      <div class="text-sm">进度: <b>{{ .Run.SamplesDone }}/{{ .Run.SamplesTotal }}</b>
+        {{ if gt .Run.SamplesFailed 0 }}· 失败: <b class="text-red-600">{{ .Run.SamplesFailed }}</b>{{ end }}</div>
+      {{ if gt .Run.SamplesTotal 0 }}
+        <div class="bg-gray-200 rounded h-3">
+          <div class="bg-blue-500 rounded h-3" style="width: {{ percentOf .Run.SamplesDone .Run.SamplesTotal }}%"></div>
+        </div>
+      {{ end }}
+    </div>
+  {{ else if eq .Run.Status "aborted" }}
+    <div class="bg-yellow-50 border border-yellow-200 rounded p-4 space-y-2">
+      <h2 class="font-semibold text-yellow-700">进程重启时被中止</h2>
+      <p class="text-sm">完成 {{ .Run.SamplesDone }}/{{ .Run.SamplesTotal }} 条后被中断。</p>
+      <a href="/eval/replays/new" class="inline-block mt-2 px-3 py-1 bg-blue-600 text-white text-sm rounded">重新提交</a>
+    </div>
+  {{ else if .Run.Summary }}
     <div class="grid grid-cols-5 gap-4">
       <div class="bg-white shadow rounded p-3 text-center">
         <div class="text-xs text-gray-500">SampleSize</div>
@@ -100,6 +130,7 @@
     <div class="bg-red-50 border border-red-200 rounded p-4">
       <h2 class="font-semibold text-red-700">失败</h2>
       <pre class="mt-2 text-sm whitespace-pre-wrap">{{ derefStr .Run.ErrorMessage }}</pre>
+      <a href="/eval/replays/new" class="inline-block mt-3 px-3 py-1 bg-blue-600 text-white text-sm rounded">重新提交</a>
     </div>
   {{ else }}
     <p class="text-gray-500">Run 状态: {{ .Run.Status }} — 摘要尚未生成</p>
@@ -111,12 +142,14 @@
     <pre class="mt-2 text-xs overflow-x-auto bg-gray-50 p-3 rounded whitespace-pre-wrap">{{ .Run.PromptText }}</pre>
   </details>
 
-  <div class="bg-white shadow rounded p-4"
-       hx-get="/eval/replays/{{ .Run.ID }}/rows"
-       hx-trigger="revealed"
-       hx-swap="innerHTML">
-    <h2 class="font-semibold">样本明细(按 |Δscore| 降序,最多 200 条)</h2>
-    <p class="text-sm text-gray-500 mt-2">加载中...</p>
-  </div>
+  {{ if or (eq .Run.Status "done") (eq .Run.Status "aborted") (eq .Run.Status "failed") }}
+    <div class="bg-white shadow rounded p-4"
+         hx-get="/eval/replays/{{ .Run.ID }}/rows"
+         hx-trigger="revealed"
+         hx-swap="innerHTML">
+      <h2 class="font-semibold">样本明细(按 |Δscore| 降序,最多 200 条)</h2>
+      <p class="text-sm text-gray-500 mt-2">加载中...</p>
+    </div>
+  {{ end }}
 </div>
 {{ end }}
