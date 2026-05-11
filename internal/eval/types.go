@@ -10,8 +10,9 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ReplayRow is one signal worth of replay output: old prod score/decision +
-// new replay score/decision + realized PnL (if any).
+// ReplayRow is the per-signal record produced by ReplayOne. Aggregation
+// functions operate on slices of these. PnLUSDC is nil when the signal had
+// no closed trade; HasPnL distinguishes nil from "0.0 PnL".
 type ReplayRow struct {
 	SignalID    int64
 	StrategyID  string
@@ -25,53 +26,52 @@ type ReplayRow struct {
 	NewReason   string
 	PnLUSDC     *float64
 	HasPnL      bool
-	Error       string // BadDecision / MissingFields / LLMError / history_json: ...
+	Error       string // non-empty when LLM call / parse failed for new prompt
 }
 
-// Bucket is one score-bin's aggregate.
+// Bucket is one row of the 5-tier score-vs-PnL summary produced by replay.
+// JSON shape is consumed by future automation; field names are stable.
 type Bucket struct {
 	Label   string
-	Signals int
-	Trades  int
-	Wins    int
-	SumPnL  float64
-	AvgPnL  float64
-	WinRate float64
+	Signals int     // count of signals in bucket
+	Trades  int     // count of has-PnL signals in bucket
+	AvgPnL  float64 // mean of PnLs over Trades; NaN if Trades==0
+	WinPct  float64 // % of Trades with PnL>0; NaN if Trades==0
 }
 
-// MarshalJSON returns JSON null for NaN AvgPnL/WinRate (empty bucket).
+// MarshalJSON for Bucket — turns NaN AvgPnL/WinPct into JSON null.
 func (b Bucket) MarshalJSON() ([]byte, error) {
-	type alias Bucket
 	return json.Marshal(struct {
-		alias
-		AvgPnL  any `json:"AvgPnL"`
-		WinRate any `json:"WinRate"`
-	}{
-		alias:   alias(b),
-		AvgPnL:  NilIfNaN(b.AvgPnL),
-		WinRate: NilIfNaN(b.WinRate),
-	})
+		Label   string `json:"label"`
+		Signals int    `json:"signals"`
+		Trades  int    `json:"trades"`
+		AvgPnL  any    `json:"avg_pnl"`
+		WinPct  any    `json:"win_pct"`
+	}{b.Label, b.Signals, b.Trades, NilIfNaN(b.AvgPnL), NilIfNaN(b.WinPct)})
 }
 
-// FlipMatrix is the kept-vs-flipped breakdown with PnL totals.
+// FlipMatrix counts the four old×new decision combinations and the avg PnL
+// for the two true-flip cells.
 type FlipMatrix struct {
-	Kept    int     // both versions same decision
-	Flipped int     // versions disagree
-	KeptPnL float64
-	FlipPnL float64
+	ApproveToApprove       int
+	ApproveToAbandon       int
+	AbandonToApprove       int
+	AbandonToAbandon       int
+	ApproveToAbandonAvgPnL float64 // NaN if no has-PnL flips of this kind
+	AbandonToApproveAvgPnL float64
 }
 
+// MarshalJSON for FlipMatrix — turns NaN flip-quality avg PnL into JSON null.
 func (m FlipMatrix) MarshalJSON() ([]byte, error) {
-	type alias FlipMatrix
 	return json.Marshal(struct {
-		alias
-		KeptPnL any `json:"KeptPnL"`
-		FlipPnL any `json:"FlipPnL"`
-	}{
-		alias:   alias(m),
-		KeptPnL: NilIfNaN(m.KeptPnL),
-		FlipPnL: NilIfNaN(m.FlipPnL),
-	})
+		ApproveToApprove       int `json:"approve_to_approve"`
+		ApproveToAbandon       int `json:"approve_to_abandon"`
+		AbandonToApprove       int `json:"abandon_to_approve"`
+		AbandonToAbandon       int `json:"abandon_to_abandon"`
+		ApproveToAbandonAvgPnL any `json:"approve_to_abandon_avg_pnl"`
+		AbandonToApproveAvgPnL any `json:"abandon_to_approve_avg_pnl"`
+	}{m.ApproveToApprove, m.ApproveToAbandon, m.AbandonToApprove, m.AbandonToAbandon,
+		NilIfNaN(m.ApproveToAbandonAvgPnL), NilIfNaN(m.AbandonToApproveAvgPnL)})
 }
 
 // NilIfNaN returns nil for NaN so JSON marshals to null instead of "NaN".
@@ -101,6 +101,7 @@ type ReplayCase struct {
 
 // ReplayReport bundles all replay output (old + new score buckets, flips,
 // rows). Returned by RunReplay and serialized to summary_json on persistence.
+// JSON contract is consumed by future automation; field names are stable.
 type ReplayReport struct {
 	Since      string      `json:"since"`
 	PromptFile string      `json:"prompt_file"`
@@ -114,16 +115,24 @@ type ReplayReport struct {
 	Rows       []ReplayRow `json:"rows"`
 }
 
+// MarshalJSON for ReplayReport — turns NaN Spearman values into JSON null
+// (they're NaN when sample size < 2).
 func (r ReplayReport) MarshalJSON() ([]byte, error) {
-	type alias ReplayReport
 	return json.Marshal(struct {
-		alias
-		V1Spearman any `json:"v1_spearman"`
-		V2Spearman any `json:"v2_spearman"`
+		Since      string      `json:"since"`
+		PromptFile string      `json:"prompt_file"`
+		SampleSize int         `json:"sample_size"`
+		WithPnL    int         `json:"with_pnl"`
+		V1Spearman any         `json:"v1_spearman"`
+		V2Spearman any         `json:"v2_spearman"`
+		V1Buckets  []Bucket    `json:"v1_buckets"`
+		V2Buckets  []Bucket    `json:"v2_buckets"`
+		Flips      FlipMatrix  `json:"flips"`
+		Rows       []ReplayRow `json:"rows"`
 	}{
-		alias:      alias(r),
-		V1Spearman: NilIfNaN(r.V1Spearman),
-		V2Spearman: NilIfNaN(r.V2Spearman),
+		r.Since, r.PromptFile, r.SampleSize, r.WithPnL,
+		NilIfNaN(r.V1Spearman), NilIfNaN(r.V2Spearman),
+		r.V1Buckets, r.V2Buckets, r.Flips, r.Rows,
 	})
 }
 
@@ -150,12 +159,26 @@ type ReplayRun struct {
 	Summary       *ReplayReport // decoded from summary_json, nil until status=done
 }
 
+// EvalBucket is the per-bucket aggregate used by the grayscale dashboard.
+// Distinct from Bucket (replay-mode) because the dashboard surfaces more
+// columns: Wins + SumPnL + WinRate. Kept separate so adding fields here
+// doesn't churn ReplayReport JSON consumers.
+type EvalBucket struct {
+	Label   string
+	Signals int
+	Trades  int
+	Wins    int
+	SumPnL  float64
+	AvgPnL  float64 // NaN if Trades==0
+	WinRate float64 // 0..100; NaN if Trades==0
+}
+
 // EvalReport is the result of `cmd/agent-eval --since=3d` (no --replay).
 // Used both by the cmd (stdout) and the /eval page.
 type EvalReport struct {
 	Since        string
 	GeneratedAt  int64
-	Buckets      []Bucket // 5 fixed score bins
+	Buckets      []EvalBucket // 5 fixed score bins
 	TotalSignals int
 	TotalTrades  int
 	Spearman     float64 // NaN if insufficient samples
@@ -172,6 +195,7 @@ type LLMHealth struct {
 	TopFailReasons []FailReason // top 3
 }
 
+// FailReason is one bucket of the top-failure-reasons summary.
 type FailReason struct {
 	Reason string
 	Count  int
