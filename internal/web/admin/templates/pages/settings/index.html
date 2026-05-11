@@ -223,23 +223,45 @@
           <input type="checkbox" name="news_enabled" {{ if .Settings.NewsEnabled }}checked{{ end }} class="mr-2">
           <span class="text-sm">启用（每 N 分钟拉 CryptoPanic + LLM 解读）</span>
         </label>
+
+        <div class="bg-blue-50 border border-blue-200 rounded p-3 mb-3 text-xs space-y-2">
+          <p class="font-semibold text-blue-900">📌 News worker 需要两把 Key（缺一不可）</p>
+          <div>
+            <p class="font-medium">① CryptoPanic API Key（下面"CryptoPanic API Key"输入框）</p>
+            <ol class="list-decimal list-inside ml-2 mt-1 space-y-0.5 text-gray-700">
+              <li>打开 <a href="https://cryptopanic.com/developers/api/" target="_blank" class="text-blue-700 underline">https://cryptopanic.com/developers/api/</a></li>
+              <li>注册 / 登录（免费层 1k req/day，本 worker 每 15min 拉一次远低于上限）</li>
+              <li>页面会显示 <code>auth_token</code>，复制后粘贴到下方输入框</li>
+            </ol>
+          </div>
+          <div>
+            <p class="font-medium">② LLM API Key（不在本区块，在上方"LLM API"区块配的 <code>API Key</code>）</p>
+            <p class="ml-2 mt-1 text-gray-700">
+              已配置 scorer 用的 Anthropic key 即可，News worker 复用同一把。
+              当前状态：
+              {{ if .Settings.LLMAPIKey }}<span class="text-green-700 font-semibold">✅ 已配置</span>{{ else }}<span class="text-red-700 font-semibold">❌ 未配置（请先到上方"LLM API"区块填写）</span>{{ end }}
+            </p>
+          </div>
+          <p class="text-gray-600">启用 News 时会前置校验上述两把 key，未填会被拒绝。</p>
+        </div>
+
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div>
             <label class="block text-sm font-medium">间隔（分钟）</label>
             <input type="number" name="news_interval_min" value="{{ .Settings.NewsIntervalMin }}" min="5" max="60" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+            <p class="text-xs text-gray-500 mt-1">默认 15，建议 ≥ 5。</p>
           </div>
           <div>
             <label class="block text-sm font-medium">CryptoPanic API Key</label>
-            <input type="text" name="news_api_key" value="{{ .Settings.NewsAPIKey }}" placeholder="cryptopanic auth_token" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono">
+            <input type="text" name="news_api_key" value="{{ .Settings.NewsAPIKey }}" placeholder="auth_token" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono">
+            <p class="text-xs text-gray-500 mt-1">即 cryptopanic 个人页的 <code>auth_token</code>。</p>
           </div>
           <div>
             <label class="block text-sm font-medium">LLM 模型</label>
             <input type="text" name="news_llm_model" value="{{ .Settings.NewsLLMModel }}" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono">
+            <p class="text-xs text-gray-500 mt-1">推荐 <code>claude-haiku-4-5-20251001</code>（便宜）。</p>
           </div>
         </div>
-        {{ if not .Settings.LLMAPIKey }}
-        <p class="text-xs text-red-600 mt-2">⚠ 未配置 LLM API key，启用 News 会被前置校验拒绝。请先到上方"LLM API"区块配置。</p>
-        {{ end }}
       </div>
     </div>
     <p class="text-xs text-gray-500">
