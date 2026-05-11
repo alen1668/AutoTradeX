@@ -1,0 +1,18 @@
+{{ define "eval_flip_matrix" }}
+<div class="bg-white shadow rounded p-4">
+  <h2 class="font-semibold mb-2">Decision Flip Matrix</h2>
+  <div class="grid grid-cols-2 gap-4 text-sm">
+    <div>
+      <table class="text-xs">
+        <tr><td></td><td class="px-2 font-semibold">v2 approve</td><td class="px-2 font-semibold">v2 abandon</td></tr>
+        <tr><td class="font-semibold">v1 approve</td><td class="px-2">{{ .Flips.ApproveToApprove }}</td><td class="px-2">{{ .Flips.ApproveToAbandon }}</td></tr>
+        <tr><td class="font-semibold">v1 abandon</td><td class="px-2">{{ .Flips.AbandonToApprove }}</td><td class="px-2">{{ .Flips.AbandonToAbandon }}</td></tr>
+      </table>
+    </div>
+    <div class="text-xs">
+      <div>approve→abandon ({{ .Flips.ApproveToAbandon }} 条) 平均 PnL: <b>{{ printf "%.2f" .Flips.ApproveToAbandonAvgPnL }}</b></div>
+      <div>abandon→approve ({{ .Flips.AbandonToApprove }} 条) 平均 PnL: <b>{{ printf "%.2f" .Flips.AbandonToApproveAvgPnL }}</b></div>
+    </div>
+  </div>
+</div>
+{{ end }}
