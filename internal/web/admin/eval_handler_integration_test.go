@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
 	"github.com/lizhaojie/tvbot/internal/eval"
@@ -320,4 +321,80 @@ func TestEvalHandler_ReplayDetail_DoneStopsPolling(t *testing.T) {
 	r.ServeHTTP(w, req)
 	body := w.Body.String()
 	require.NotContains(t, body, `hx-trigger="every 2s"`)
+}
+
+func TestEvalHandler_Stream_ReadyHandshake(t *testing.T) {
+	pool := newEvalTestPool(t)
+	renderer, _ := NewRenderer()
+	broker := eval.NewBroker(zerolog.Nop())
+	h := NewEvalHandler(renderer, pool).WithBroker(broker)
+
+	// Use context cancellation to unblock the handler after one tick.
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest("GET", "/eval/stream", nil).WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		h.Stream(w, req)
+		close(done)
+	}()
+
+	// Give handler time to emit the ready event, then cancel.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	<-done
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, "text/event-stream", w.Header().Get("Content-Type"))
+	body := w.Body.String()
+	require.Contains(t, body, "event: ready")
+	require.Contains(t, body, "data: {\"id\":")
+}
+
+func TestEvalHandler_Stream_DeliversPublishedEvent(t *testing.T) {
+	pool := newEvalTestPool(t)
+	renderer, _ := NewRenderer()
+	broker := eval.NewBroker(zerolog.Nop())
+	h := NewEvalHandler(renderer, pool).WithBroker(broker)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req := httptest.NewRequest("GET", "/eval/stream", nil).WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		h.Stream(w, req)
+		close(done)
+	}()
+
+	// Let the handler register before publishing.
+	time.Sleep(50 * time.Millisecond)
+	score := 73
+	broker.Publish(eval.EvalEvent{
+		Kind: "agent_score", SignalID: 42, Symbol: "BTCUSDT",
+		AgentScore: &score, Decision: "approve", OccurredAt: 1700000000,
+	})
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	<-done
+
+	body := w.Body.String()
+	require.Contains(t, body, `"kind":"agent_score"`)
+	require.Contains(t, body, `"signal_id":42`)
+	require.Contains(t, body, `"agent_score":73`)
+}
+
+func TestEvalHandler_Stream_503IfNoBroker(t *testing.T) {
+	pool := newEvalTestPool(t)
+	renderer, _ := NewRenderer()
+	h := NewEvalHandler(renderer, pool) // no WithBroker
+
+	req := httptest.NewRequest("GET", "/eval/stream", nil)
+	w := httptest.NewRecorder()
+	h.Stream(w, req)
+
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
 }

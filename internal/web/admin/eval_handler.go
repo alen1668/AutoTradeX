@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -17,6 +18,7 @@ type EvalHandler struct {
 	render  *Renderer
 	pool    *pgxpool.Pool
 	store   *eval.Store
+	broker  *eval.Broker   // nil-safe; when nil, /eval/stream returns 503
 	statusH *StatusHandler // injected later via WithStatus; nil-safe for tests
 }
 
@@ -33,6 +35,55 @@ func NewEvalHandler(r *Renderer, pool *pgxpool.Pool) *EvalHandler {
 func (h *EvalHandler) WithStatus(s *StatusHandler) *EvalHandler {
 	h.statusH = s
 	return h
+}
+
+// WithBroker wires the Phase 3 SSE broker. Required before /eval/stream
+// can serve real-time events.
+func (h *EvalHandler) WithBroker(b *eval.Broker) *EvalHandler {
+	h.broker = b
+	return h
+}
+
+// Stream is the SSE endpoint that pushes EvalEvents to the browser as
+// they happen. Each connection becomes one Broker subscriber for its
+// lifetime. Returns 503 when no broker is wired (tests / pre-Phase-3
+// startup).
+func (h *EvalHandler) Stream(w http.ResponseWriter, r *http.Request) {
+	if h.broker == nil {
+		http.Error(w, "broker not configured", http.StatusServiceUnavailable)
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	id, ch := h.broker.Subscribe()
+	defer h.broker.Unsubscribe(id)
+
+	fmt.Fprintf(w, "event: ready\ndata: {\"id\":%d}\n\n", id)
+	flusher.Flush()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case evt, open := <-ch:
+			if !open {
+				return // broker dropped us as slow client
+			}
+			raw, err := json.Marshal(evt)
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(w, "data: %s\n\n", raw)
+			flusher.Flush()
+		}
+	}
 }
 
 // Index handles GET /eval. Renders the grayscale-period score-bucket × PnL
