@@ -22,6 +22,7 @@ import (
 	"github.com/lizhaojie/tvbot/internal/application/reconcile"
 	"github.com/lizhaojie/tvbot/internal/application/trade"
 	"github.com/lizhaojie/tvbot/internal/config"
+	evalpkg "github.com/lizhaojie/tvbot/internal/eval"
 	"github.com/lizhaojie/tvbot/internal/idempotency"
 	binanceinfra "github.com/lizhaojie/tvbot/internal/infrastructure/binance"
 	ilog "github.com/lizhaojie/tvbot/internal/log"
@@ -256,6 +257,7 @@ func main() {
 	}
 	statsHandler := admin.NewStatsHandler(renderer, pool, statusHandler, incomeFetcher)
 	evalHandler := admin.NewEvalHandler(renderer, pool).WithStatus(statusHandler)
+	evalNewHandler := admin.NewEvalNewHandler(renderer, pool).WithStatus(statusHandler)
 	settingsHandler := admin.NewSettingsHandler(renderer, pool, settingsRepo, statusHandler)
 
 	// ── webhook handler ──────────────────────────────────────────────────────
@@ -331,6 +333,9 @@ func main() {
 			// Eval dashboard
 			r.Get("/eval", evalHandler.Index)
 			r.Get("/eval/replays", evalHandler.ReplayList)
+			r.Get("/eval/replays/new", evalNewHandler.GetNew)
+			r.Post("/eval/replays/preview", evalNewHandler.PostPreview)
+			r.Post("/eval/replays", evalNewHandler.PostCreate)
 			r.Get("/eval/replays/{id}", evalHandler.ReplayDetail)
 			r.Get("/eval/replays/{id}/rows", evalHandler.ReplayRowsPartial)
 
@@ -352,6 +357,16 @@ func main() {
 	// ── graceful shutdown ────────────────────────────────────────────────────
 	shutCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	// ── Phase 2 replay worker ────────────────────────────────────────────────
+	// Polls replay_runs WHERE status='pending' every 1s. Web form is the only
+	// pending-row producer; cmd/agent-eval --replay creates 'running' directly.
+	{
+		apiKey, scorerModel, baseURL, timeoutMs := evalpkg.LoadLLMConfig(shutCtx, pool)
+		llmClient := evalpkg.MakeLLMClient(apiKey, baseURL)
+		replayWorker := evalpkg.NewWorker(pool, llmClient, scorerModel, timeoutMs, notifier, logger)
+		go replayWorker.Run(shutCtx)
+	}
 
 	// ── startup recovery (BEFORE HTTP server) ────────────────────────────────
 	recovery := reconcile.NewRecovery(pool, posRepo, orderRepo, historyRepo, systemRepo, trader, notifier, logger)
