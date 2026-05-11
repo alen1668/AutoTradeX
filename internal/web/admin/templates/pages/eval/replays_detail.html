@@ -1,4 +1,122 @@
 {{ define "content" }}
-  <h1 class="text-xl mb-4">Replay 详情</h1>
-  <p class="text-gray-500">Phase 1 — 实现中</p>
+<div class="space-y-6">
+  <div>
+    <a href="/eval/replays" class="text-blue-600 text-sm">← 返回列表</a>
+    <h1 class="text-2xl font-bold mt-2">
+      Replay #{{ .Run.ID }}
+      <span class="text-sm font-normal text-gray-600">·
+        {{ derefStr .Run.PromptName }} ·
+        <code>{{ .Run.Model }}</code> ·
+        since={{ .Run.SinceWindow }} ·
+        {{ if eq .Run.Status "done" }}<span class="text-green-700">done</span>
+        {{ else if eq .Run.Status "failed" }}<span class="text-red-700">failed</span>
+        {{ else if eq .Run.Status "running" }}<span class="text-blue-700">running</span>
+        {{ else }}{{ .Run.Status }}{{ end }}
+      </span>
+    </h1>
+    <p class="text-sm text-gray-500 mt-1">
+      创建: {{ unix2human .Run.CreatedAt }}
+      {{ if .Run.StartedAt }}· 开始: {{ unix2human (derefInt64 .Run.StartedAt) }}{{ end }}
+      {{ if .Run.FinishedAt }}· 结束: {{ unix2human (derefInt64 .Run.FinishedAt) }}{{ end }}
+    </p>
+  </div>
+
+  {{ if .Run.Summary }}
+    <div class="grid grid-cols-5 gap-4">
+      <div class="bg-white shadow rounded p-3 text-center">
+        <div class="text-xs text-gray-500">SampleSize</div>
+        <div class="text-xl font-bold">{{ .Run.Summary.SampleSize }}</div>
+      </div>
+      <div class="bg-white shadow rounded p-3 text-center">
+        <div class="text-xs text-gray-500">With PnL</div>
+        <div class="text-xl font-bold">{{ .Run.Summary.WithPnL }}</div>
+      </div>
+      <div class="bg-white shadow rounded p-3 text-center">
+        <div class="text-xs text-gray-500">Failed</div>
+        <div class="text-xl font-bold">{{ .Run.SamplesFailed }}</div>
+      </div>
+      <div class="bg-white shadow rounded p-3 text-center">
+        <div class="text-xs text-gray-500">Prod Spearman</div>
+        <div class="text-xl font-bold">{{ printf "%.4f" .Run.Summary.V1Spearman }}</div>
+      </div>
+      <div class="bg-white shadow rounded p-3 text-center">
+        <div class="text-xs text-gray-500">Replay Spearman</div>
+        <div class="text-xl font-bold">{{ printf "%.4f" .Run.Summary.V2Spearman }}</div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div class="bg-white shadow rounded p-4">
+        <h2 class="font-semibold mb-2">生产 Score 分布</h2>
+        <table class="w-full text-xs">
+          {{ range .Run.Summary.V1Buckets }}
+          <tr>
+            <td class="w-16">{{ .Label }}</td>
+            <td class="w-12">{{ .Signals }}</td>
+            <td>
+              <div class="bg-gray-200 rounded h-3" style="width: 100%">
+                <div class="bg-blue-400 rounded h-3" style="width: {{ if gt .Signals 0 }}{{ .Signals }}{{ else }}0{{ end }}%; max-width: 100%"></div>
+              </div>
+            </td>
+          </tr>
+          {{ end }}
+        </table>
+      </div>
+      <div class="bg-white shadow rounded p-4">
+        <h2 class="font-semibold mb-2">Replay Score 分布</h2>
+        <table class="w-full text-xs">
+          {{ range .Run.Summary.V2Buckets }}
+          <tr>
+            <td class="w-16">{{ .Label }}</td>
+            <td class="w-12">{{ .Signals }}</td>
+            <td>
+              <div class="bg-gray-200 rounded h-3" style="width: 100%">
+                <div class="bg-green-400 rounded h-3" style="width: {{ if gt .Signals 0 }}{{ .Signals }}{{ else }}0{{ end }}%; max-width: 100%"></div>
+              </div>
+            </td>
+          </tr>
+          {{ end }}
+        </table>
+      </div>
+    </div>
+
+    <div class="bg-white shadow rounded p-4">
+      <h2 class="font-semibold mb-2">Decision Flip Matrix</h2>
+      <div class="grid grid-cols-2 gap-4 text-sm">
+        <div>
+          <table class="text-xs">
+            <tr><td></td><td class="px-2 font-semibold">v2 approve</td><td class="px-2 font-semibold">v2 abandon</td></tr>
+            <tr><td class="font-semibold">v1 approve</td><td class="px-2">{{ .Run.Summary.Flips.ApproveToApprove }}</td><td class="px-2">{{ .Run.Summary.Flips.ApproveToAbandon }}</td></tr>
+            <tr><td class="font-semibold">v1 abandon</td><td class="px-2">{{ .Run.Summary.Flips.AbandonToApprove }}</td><td class="px-2">{{ .Run.Summary.Flips.AbandonToAbandon }}</td></tr>
+          </table>
+        </div>
+        <div class="text-xs">
+          <div>approve→abandon ({{ .Run.Summary.Flips.ApproveToAbandon }} 条) 平均 PnL: <b>{{ printf "%.2f" .Run.Summary.Flips.ApproveToAbandonAvgPnL }}</b></div>
+          <div>abandon→approve ({{ .Run.Summary.Flips.AbandonToApprove }} 条) 平均 PnL: <b>{{ printf "%.2f" .Run.Summary.Flips.AbandonToApproveAvgPnL }}</b></div>
+        </div>
+      </div>
+    </div>
+  {{ else if eq .Run.Status "failed" }}
+    <div class="bg-red-50 border border-red-200 rounded p-4">
+      <h2 class="font-semibold text-red-700">失败</h2>
+      <pre class="mt-2 text-sm whitespace-pre-wrap">{{ derefStr .Run.ErrorMessage }}</pre>
+    </div>
+  {{ else }}
+    <p class="text-gray-500">Run 状态: {{ .Run.Status }} — 摘要尚未生成</p>
+  {{ end }}
+
+  <details class="bg-white shadow rounded p-4">
+    <summary class="cursor-pointer font-semibold">完整 Prompt
+      (sha256: <code class="text-xs">{{ .Run.PromptSHA256 }}</code>)</summary>
+    <pre class="mt-2 text-xs overflow-x-auto bg-gray-50 p-3 rounded whitespace-pre-wrap">{{ .Run.PromptText }}</pre>
+  </details>
+
+  <div class="bg-white shadow rounded p-4"
+       hx-get="/eval/replays/{{ .Run.ID }}/rows"
+       hx-trigger="revealed"
+       hx-swap="innerHTML">
+    <h2 class="font-semibold">样本明细(按 |Δscore| 降序,最多 200 条)</h2>
+    <p class="text-sm text-gray-500 mt-2">加载中...</p>
+  </div>
+</div>
 {{ end }}

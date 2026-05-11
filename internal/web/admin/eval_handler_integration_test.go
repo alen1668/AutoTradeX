@@ -4,11 +4,13 @@ package admin
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/require"
 
 	"github.com/lizhaojie/tvbot/internal/eval"
@@ -66,6 +68,78 @@ func TestEvalHandler_ReplayList_EmptyState(t *testing.T) {
 	h.ReplayList(w, req)
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Contains(t, w.Body.String(), "尚无 replay 记录")
+}
+
+func TestEvalHandler_ReplayDetail_NotFound(t *testing.T) {
+	pool := newEvalTestPool(t)
+	renderer, _ := NewRenderer()
+	h := NewEvalHandler(renderer, pool)
+
+	r := chi.NewRouter()
+	r.Get("/eval/replays/{id}", h.ReplayDetail)
+
+	req := httptest.NewRequest("GET", "/eval/replays/9999", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestEvalHandler_ReplayDetail_RendersSummary(t *testing.T) {
+	pool := newEvalTestPool(t)
+	renderer, _ := NewRenderer()
+	h := NewEvalHandler(renderer, pool)
+	r := chi.NewRouter()
+	r.Get("/eval/replays/{id}", h.ReplayDetail)
+
+	store := eval.NewStore(pool)
+	id, _ := store.CreateRun(context.Background(), eval.ReplayRun{
+		SinceWindow:  "7d",
+		SinceCutoff:  time.Now().Unix(),
+		Model:        "m",
+		PromptText:   "p",
+		PromptSHA256: "sha",
+		Status:       "running",
+	})
+	rep := eval.ReplayReport{SampleSize: 42, WithPnL: 30, V1Spearman: 0.3, V2Spearman: 0.5,
+		V1Buckets: []eval.Bucket{{Label: "0-20"}, {Label: "20-40"}, {Label: "40-60"}, {Label: "60-80"}, {Label: "80-100"}},
+		V2Buckets: []eval.Bucket{{Label: "0-20"}, {Label: "20-40"}, {Label: "40-60"}, {Label: "60-80"}, {Label: "80-100"}}}
+	require.NoError(t, store.MarkRunDone(context.Background(), id, &rep, 42, 0))
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/eval/replays/%d", id), nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	require.Contains(t, body, "0.5000") // V2Spearman
+	require.Contains(t, body, "42")     // SampleSize
+}
+
+func TestEvalHandler_ReplayDetail_EscapesPrompt(t *testing.T) {
+	pool := newEvalTestPool(t)
+	renderer, _ := NewRenderer()
+	h := NewEvalHandler(renderer, pool)
+	r := chi.NewRouter()
+	r.Get("/eval/replays/{id}", h.ReplayDetail)
+
+	store := eval.NewStore(pool)
+	id, _ := store.CreateRun(context.Background(), eval.ReplayRun{
+		SinceWindow:  "7d",
+		SinceCutoff:  time.Now().Unix(),
+		Model:        "m",
+		PromptText:   `<script>alert("xss")</script>`,
+		PromptSHA256: "sha",
+		Status:       "done",
+	})
+	require.NoError(t, store.MarkRunDone(context.Background(), id, &eval.ReplayReport{
+		V1Buckets: []eval.Bucket{{Label: "0-20"}, {Label: "20-40"}, {Label: "40-60"}, {Label: "60-80"}, {Label: "80-100"}},
+		V2Buckets: []eval.Bucket{{Label: "0-20"}, {Label: "20-40"}, {Label: "40-60"}, {Label: "60-80"}, {Label: "80-100"}},
+	}, 0, 0))
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/eval/replays/%d", id), nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.NotContains(t, w.Body.String(), `<script>alert("xss")</script>`)
+	require.Contains(t, w.Body.String(), `&lt;script&gt;`)
 }
 
 func TestEvalHandler_ReplayList_RendersRows(t *testing.T) {

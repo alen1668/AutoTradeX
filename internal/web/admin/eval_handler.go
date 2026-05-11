@@ -88,10 +88,32 @@ func (h *EvalHandler) ReplayList(w http.ResponseWriter, r *http.Request) {
 	h.render.Render(w, http.StatusOK, "eval/replays_list", data)
 }
 
-// ReplayDetail handles GET /eval/replays/{id}. Implemented in Task 12.
+// ReplayDetail handles GET /eval/replays/{id}.
+// Renders the run summary (buckets / flip matrix / prompt) and triggers
+// a lazy HTMX fetch for the per-signal row detail.
 func (h *EvalHandler) ReplayDetail(w http.ResponseWriter, r *http.Request) {
-	_ = chi.URLParam(r, "id")
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	ctx, cancel := withTimeout(r)
+	defer cancel()
+
+	id := parseInt64ID(r)
+	if id <= 0 {
+		http.NotFound(w, r)
+		return
+	}
+	run, err := h.store.GetRun(ctx, id)
+	if err != nil {
+		http.Error(w, "load: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	if run == nil {
+		http.NotFound(w, r)
+		return
+	}
+	data := map[string]any{"Run": run}
+	if h.statusH != nil {
+		data = h.statusH.WithStatus(r, data)
+	}
+	h.render.Render(w, http.StatusOK, "eval/replays_detail", data)
 }
 
 // ReplayRowsPartial handles GET /eval/replays/{id}/rows (HTMX lazy fragment).
