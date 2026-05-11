@@ -14,9 +14,13 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/shopspring/decimal"
 
+	"github.com/lizhaojie/tvbot/internal/agent/calendar"
 	"github.com/lizhaojie/tvbot/internal/agent/history"
+	"github.com/lizhaojie/tvbot/internal/agent/macrocontext"
 	"github.com/lizhaojie/tvbot/internal/agent/market"
+	"github.com/lizhaojie/tvbot/internal/agent/news"
 	"github.com/lizhaojie/tvbot/internal/agent/portfolio"
+	"github.com/lizhaojie/tvbot/internal/agent/regime"
 	"github.com/lizhaojie/tvbot/internal/agent/scorer"
 	"github.com/lizhaojie/tvbot/internal/application/ingest"
 	"github.com/lizhaojie/tvbot/internal/application/reconcile"
@@ -222,7 +226,23 @@ func main() {
 		marketProv = market.NewProvider(klineClient, 30*time.Second).WithLogger(
 			logger.With().Str("c", "agent_market").Logger())
 	}
-	agentHook := ingest.NewAgentHook(scorerFactory, historyProv, portfolioProv, marketProv).WithPublisher(broker)
+	// ── macro context layer (regime / calendar / news) ─────────────────────
+	// Three repos + a Reader for AgentHook. Workers themselves are started
+	// later, after shutCtx exists; here we only wire what AgentHook needs
+	// at construction time.
+	regimeRepo := store.NewMarketRegimeRepo(pool)
+	eventsRepo := store.NewEconomicEventsRepo(pool)
+	newsRepo := store.NewNewsSnapshotsRepo(pool)
+	calendarStore := calendar.NewStoreAdapter(eventsRepo, pool)
+	macroReader := macrocontext.NewReader(
+		macrocontext.WrapRegimeRepo(regimeRepo, pool),
+		calendarStore,
+		macrocontext.WrapNewsRepo(newsRepo, pool),
+	)
+
+	agentHook := ingest.NewAgentHook(scorerFactory, historyProv, portfolioProv, marketProv).
+		WithPublisher(broker).
+		WithMacroReader(macroReader)
 
 	ingestSvc := ingest.NewService(ingestCfg, pool,
 		signalRepo, settingsRepo, strategyRepo, posRepo, systemRepo,
@@ -364,6 +384,49 @@ func main() {
 	// ── graceful shutdown ────────────────────────────────────────────────────
 	shutCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	// ── macro context workers (regime / calendar / news) ───────────────────
+	// Each gated by its own settings flag (default-off). Workers run on
+	// independent goroutines and share the shutdown context. All three
+	// failure-mode behaviors keep scorer working even if every source is
+	// empty; see internal/agent/macrocontext for the read path.
+	if bt, ok := trader.(*binanceinfra.Trader); ok {
+		klineClient := market.NewBinanceKlineClient(bt.FuturesClient())
+		regimeWorker := regime.NewWorker(
+			klineClient,
+			regimeRepoAdapter{repo: regimeRepo, pool: pool},
+			regime.NewSettingsAdapter(settingsRepo, pool),
+			logger.With().Str("c", "regime").Logger(),
+		)
+		go regimeWorker.Start(shutCtx)
+	} else {
+		logger.Warn().Msg("regime worker not started: trader is not BinanceTrader")
+	}
+	{
+		calendarFetcher := calendar.NewForexFactoryFetcher(calendar.DefaultForexFactoryURL)
+		calendarWorker := calendar.NewWorker(
+			calendarFetcher,
+			calendarStore,
+			calendar.NewSettingsAdapter(settingsRepo, pool),
+			logger.With().Str("c", "calendar").Logger(),
+		)
+		go calendarWorker.Start(shutCtx)
+	}
+	if dbSettings.NewsLLMModel != "" {
+		newsFetcher := news.NewCryptoPanicFetcher(news.DefaultCryptoPanicURL, dbSettings.NewsAPIKey)
+		newsClassifier := news.NewClassifier(llmClient, dbSettings.NewsLLMModel,
+			logger.With().Str("c", "news_llm").Logger())
+		newsPersistor := news.NewStoreAdapter(newsRepoAdapter{repo: newsRepo, pool: pool})
+		newsWorker := news.NewWorker(
+			newsFetcher,
+			newsClassifier,
+			newsPersistor,
+			broker,
+			news.NewSettingsAdapter(settingsRepo, pool),
+			logger.With().Str("c", "news").Logger(),
+		)
+		go newsWorker.Start(shutCtx)
+	}
 
 	// ── Phase 2 replay worker ────────────────────────────────────────────────
 	// Polls replay_runs WHERE status='pending' every 1s. Web form is the only
