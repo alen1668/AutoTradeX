@@ -296,14 +296,13 @@ func (h *SettingsHandler) SaveMacro(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if newsAPIKey == "" {
-			http.Error(w, "启用 News 需要先填 CryptoPanic API Key", http.StatusBadRequest)
-			return
-		}
 		if cur.LLMAPIKey == "" {
 			http.Error(w, "启用 News 需要先在 /settings 配置 LLM API Key", http.StatusBadRequest)
 			return
 		}
+		// CryptoPanic API key is no longer required (default source is CoinDesk
+		// RSS which is free + keyless). The field is kept in settings so users
+		// who switch to a paid CryptoPanic plan in the future can still store it.
 	}
 	if err := h.repo.UpdateMacro(r.Context(), h.pool,
 		regimeEnabled, regimeInterval,

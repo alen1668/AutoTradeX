@@ -416,7 +416,11 @@ func main() {
 		go calendarWorker.Start(shutCtx)
 	}
 	if dbSettings.NewsLLMModel != "" {
-		newsFetcher := news.NewCryptoPanicFetcher(news.DefaultCryptoPanicURL, dbSettings.NewsAPIKey)
+		// Source default: CoinDesk RSS (free, no API key required).
+		// CryptoPanic free Developer plan was discontinued 2026-04-01; the
+		// CryptoPanicFetcher impl is kept in the package for users who want
+		// to subscribe to a paid plan and override the source.
+		newsFetcher := news.NewCoinDeskRSSFetcher(news.DefaultCoinDeskRSSURL)
 		newsClassifier := news.NewClassifier(llmClient, dbSettings.NewsLLMModel,
 			logger.With().Str("c", "news_llm").Logger())
 		newsPersistor := news.NewStoreAdapter(newsRepoAdapter{repo: newsRepo, pool: pool})
