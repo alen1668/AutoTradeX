@@ -14,6 +14,7 @@ import (
 	"github.com/lizhaojie/tvbot/internal/domain/order"
 	"github.com/lizhaojie/tvbot/internal/domain/position"
 	"github.com/lizhaojie/tvbot/internal/domain/strategy"
+	"github.com/lizhaojie/tvbot/internal/eval"
 	"github.com/lizhaojie/tvbot/internal/store"
 	tradepkg "github.com/lizhaojie/tvbot/internal/trade"
 )
@@ -46,6 +47,7 @@ type Service struct {
 	systemRepo  *store.SystemStateRepo // optional: when non-nil, ClosePosition rolls PnL into daily_pnl_usdc (powers UI + DailyLossBreaker)
 	trader      tradepkg.Trader
 	stepSizer   StepSizer
+	publisher   eval.Publisher // nil-safe Phase 3 SSE wiring
 }
 
 func NewService(pool *pgxpool.Pool, orderRepo *store.OrderRepo, posRepo *store.VirtualPositionRepo,
@@ -72,6 +74,13 @@ func (s *Service) WithSystemRepo(r *store.SystemStateRepo) *Service {
 // WithStepSizer overrides the StepSizer used to look up lot-size step for a symbol.
 func (s *Service) WithStepSizer(ss StepSizer) {
 	s.stepSizer = ss
+}
+
+// WithPublisher wires the Phase 3 SSE broker into the trade service.
+// nil is accepted and disables trade_closed publishing.
+func (s *Service) WithPublisher(p eval.Publisher) *Service {
+	s.publisher = p
+	return s
 }
 
 // OpenInput captures everything needed to open a virtual position.
@@ -423,6 +432,20 @@ func (s *Service) ClosePosition(ctx context.Context, in CloseInput) (*CloseResul
 	if err != nil {
 		return nil, err
 	}
+
+	// Phase 3: push trade_closed event to any SSE subscribers. Strictly
+	// after the transaction commits so we never publish an event that
+	// didn't actually persist. Fire-and-forget — broker is non-blocking.
+	if s.publisher != nil {
+		pnlFloat, _ := pnl.Float64()
+		s.publisher.Publish(eval.EvalEvent{
+			Kind:       "trade_closed",
+			Symbol:     in.Symbol,
+			PnLUSDC:    &pnlFloat,
+			OccurredAt: time.Now().Unix(),
+		})
+	}
+
 	return &CloseResult{ExitFillPrice: exitRes.AvgFillPrice, PnLUSDC: pnl}, nil
 }
 
