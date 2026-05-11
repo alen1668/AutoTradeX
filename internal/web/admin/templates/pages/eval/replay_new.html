@@ -1,0 +1,68 @@
+{{ define "content" }}
+<div class="space-y-4">
+  <div>
+    <a href="/eval/replays" class="text-blue-600 text-sm">← 返回列表</a>
+    <h1 class="text-2xl font-bold mt-2">新建 Replay</h1>
+    <p class="text-sm text-gray-500">上传或粘贴新 prompt,选择窗口后点"预估成本"。</p>
+  </div>
+
+  <form method="POST" action="/eval/replays/preview" enctype="multipart/form-data" class="space-y-4 bg-white shadow rounded p-4">
+    <div>
+      <label class="block text-sm font-semibold">Prompt 文件 (.tmpl / .txt)</label>
+      <input type="file" name="prompt_file" accept=".tmpl,.txt" class="mt-1 block">
+      <p class="text-xs text-gray-500 mt-1">和下方"粘贴"二选一;两者都填以文件优先。</p>
+    </div>
+
+    <div>
+      <label class="block text-sm font-semibold">或直接粘贴 prompt</label>
+      <textarea name="prompt_text" rows="12" class="mt-1 block w-full font-mono text-xs border border-gray-300 rounded p-2"></textarea>
+    </div>
+
+    <div>
+      <label class="block text-sm font-semibold">Prompt 名称 (可选)</label>
+      <input type="text" name="prompt_name" maxlength="64" class="mt-1 block border border-gray-300 rounded p-1 w-72">
+      <p class="text-xs text-gray-500 mt-1">用于在列表页显示;留空时取文件名或自动生成。</p>
+    </div>
+
+    <div class="grid grid-cols-4 gap-4">
+      <div>
+        <label class="block text-sm font-semibold">时间窗</label>
+        <select name="since" class="mt-1 block border border-gray-300 rounded p-1 w-full">
+          {{ range .SinceOpts }}
+            <option value="{{ . }}" {{ if eq . "3d" }}selected{{ end }}>{{ . }}</option>
+          {{ end }}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold">最多 N 条</label>
+        <input type="number" name="max_n" value="0" min="0" class="mt-1 block border border-gray-300 rounded p-1 w-full">
+        <p class="text-xs text-gray-500 mt-1">0 = 不限</p>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold">并发</label>
+        <input type="number" name="concurrency" value="5" min="1" max="10" class="mt-1 block border border-gray-300 rounded p-1 w-full">
+        <p class="text-xs text-gray-500 mt-1">范围 1-10</p>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold">模型</label>
+        <select name="model" class="mt-1 block border border-gray-300 rounded p-1 w-full">
+          {{ range .Models }}
+            <option value="{{ .ID }}" {{ if eq .ID $.DefaultModel }}selected{{ end }}>{{ .Label }}</option>
+          {{ end }}
+        </select>
+      </div>
+    </div>
+
+    {{ if .Error }}
+      <div class="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-700">
+        {{ .Error }}
+      </div>
+    {{ end }}
+
+    <div class="flex gap-2">
+      <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded">预估成本</button>
+      <a href="/eval/replays" class="px-4 py-2 border border-gray-300 rounded text-gray-700">取消</a>
+    </div>
+  </form>
+</div>
+{{ end }}

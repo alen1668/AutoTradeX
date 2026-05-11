@@ -1,0 +1,57 @@
+{{ define "content" }}
+<div class="space-y-4">
+  <div>
+    <a href="/eval/replays/new" class="text-blue-600 text-sm">← 返回修改</a>
+    <h1 class="text-2xl font-bold mt-2">确认提交</h1>
+  </div>
+
+  <div class="bg-white shadow rounded p-4 space-y-3 text-sm">
+    <div>
+      <div class="text-gray-500">Prompt 名称</div>
+      <div class="font-mono">{{ .In.PromptName }}</div>
+    </div>
+    <div>
+      <div class="text-gray-500">参数</div>
+      <div>
+        since=<code>{{ .In.Since }}</code> ·
+        max_n=<code>{{ .In.MaxN }}</code> ·
+        concurrency=<code>{{ .In.Concurrency }}</code> ·
+        model=<code>{{ .In.Model }}</code>
+      </div>
+    </div>
+    <details>
+      <summary class="cursor-pointer text-gray-600">Prompt 摘要 ({{ .PromptLines }} 行,SHA256 <code class="text-xs">{{ slice .In.PromptSHA256 0 8 }}</code>)</summary>
+      <pre class="mt-2 text-xs bg-gray-50 p-3 rounded whitespace-pre-wrap">{{ .PromptPrev }}</pre>
+    </details>
+  </div>
+
+  <div class="bg-yellow-50 border border-yellow-200 rounded p-4">
+    {{ if .CostErr }}
+      <div class="text-red-700">预估失败: {{ .CostErr }}</div>
+    {{ else }}
+      <div class="text-lg font-bold">预估成本: ${{ printf "%.4f" .Cost.TotalUSD }}</div>
+      <div class="text-xs text-gray-700 mt-1">
+        基于 <code>{{ .In.Model }}</code>
+        {{ if eq .Cost.Source "history" }}最近 100 条历史均值{{ else }}fallback 估算 (可能偏差 ±50%){{ end }} ·
+        {{ .Cost.SampleCount }} 条信号 ·
+        {{ .Cost.AvgTokenIn }} in / {{ .Cost.AvgTokenOut }} out tokens (平均)
+      </div>
+    {{ end }}
+  </div>
+
+  <form method="POST" action="/eval/replays" enctype="multipart/form-data" class="flex gap-2">
+    <input type="hidden" name="since" value="{{ .In.Since }}">
+    <input type="hidden" name="model" value="{{ .In.Model }}">
+    <input type="hidden" name="prompt_text" value="{{ .In.PromptText }}">
+    <input type="hidden" name="prompt_name" value="{{ .In.PromptName }}">
+    <input type="hidden" name="max_n" value="{{ .In.MaxN }}">
+    <input type="hidden" name="concurrency" value="{{ .In.Concurrency }}">
+    {{ if .CostErr }}
+      <button type="submit" disabled class="px-4 py-2 bg-gray-300 text-white rounded cursor-not-allowed">无法提交</button>
+    {{ else }}
+      <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded">确认提交 (${{ printf "%.4f" .Cost.TotalUSD }})</button>
+    {{ end }}
+    <a href="/eval/replays/new" class="px-4 py-2 border border-gray-300 rounded text-gray-700">返回修改</a>
+  </form>
+</div>
+{{ end }}
