@@ -1,7 +1,4 @@
-//go:build never
-// +build never
-
-package main
+package eval
 
 import (
 	"context"
@@ -56,7 +53,7 @@ func TestReplayOne_Success(t *testing.T) {
 		Text:    `{"score":38,"decision":"abandon","reasoning":"new reason"}`,
 		TokenIn: 100, TokenOut: 20,
 	}}
-	row := replayOne(context.Background(), c, tmpl, llm, scorer.DefaultModel, 5000)
+	row := ReplayOne(context.Background(), c, tmpl, llm, scorer.DefaultModel, 5000)
 	assert.Empty(t, row.Error)
 	assert.Equal(t, int64(1247), row.SignalID)
 	assert.Equal(t, 72, row.OldScore)
@@ -72,7 +69,7 @@ func TestReplayOne_LLMError(t *testing.T) {
 	c := sampleCase(t)
 	tmpl := template.Must(template.New("v2").Parse("noop"))
 	llm := &fakeLLM{err: errors.New("connection refused")}
-	row := replayOne(context.Background(), c, tmpl, llm, scorer.DefaultModel, 5000)
+	row := ReplayOne(context.Background(), c, tmpl, llm, scorer.DefaultModel, 5000)
 	assert.NotEmpty(t, row.Error)
 	assert.Contains(t, row.Error, "connection refused")
 }
@@ -81,7 +78,7 @@ func TestReplayOne_BadJSON(t *testing.T) {
 	c := sampleCase(t)
 	tmpl := template.Must(template.New("v2").Parse("noop"))
 	llm := &fakeLLM{resp: scorer.CompleteResponse{Text: "not json at all"}}
-	row := replayOne(context.Background(), c, tmpl, llm, scorer.DefaultModel, 5000)
+	row := ReplayOne(context.Background(), c, tmpl, llm, scorer.DefaultModel, 5000)
 	assert.NotEmpty(t, row.Error)
 }
 
@@ -91,7 +88,7 @@ func TestReplayOne_ScoreOutOfRange(t *testing.T) {
 	llm := &fakeLLM{resp: scorer.CompleteResponse{
 		Text: `{"score":150,"decision":"approve","reasoning":"x"}`,
 	}}
-	row := replayOne(context.Background(), c, tmpl, llm, scorer.DefaultModel, 5000)
+	row := ReplayOne(context.Background(), c, tmpl, llm, scorer.DefaultModel, 5000)
 	assert.NotEmpty(t, row.Error)
 	assert.Contains(t, row.Error, "score")
 }
@@ -101,7 +98,7 @@ func TestReplayOne_BadHistoryJSON(t *testing.T) {
 	c.HistoryJSON = []byte("{not valid json}")
 	tmpl := template.Must(template.New("v2").Parse("noop"))
 	llm := &fakeLLM{}
-	row := replayOne(context.Background(), c, tmpl, llm, scorer.DefaultModel, 5000)
+	row := ReplayOne(context.Background(), c, tmpl, llm, scorer.DefaultModel, 5000)
 	assert.NotEmpty(t, row.Error)
 	assert.Contains(t, row.Error, "history_json")
 }
@@ -111,7 +108,7 @@ func TestReplayOne_TemplateExecError(t *testing.T) {
 	tmpl := template.Must(template.New("v2").Parse("{{.Nonexistent}}"))
 	tmpl.Option("missingkey=error")
 	llm := &fakeLLM{}
-	row := replayOne(context.Background(), c, tmpl, llm, scorer.DefaultModel, 5000)
+	row := ReplayOne(context.Background(), c, tmpl, llm, scorer.DefaultModel, 5000)
 	assert.NotEmpty(t, row.Error)
 }
 
@@ -121,7 +118,7 @@ func TestReplayOne_BadDecision(t *testing.T) {
 	llm := &fakeLLM{resp: scorer.CompleteResponse{
 		Text: `{"score":50,"decision":"maybe","reasoning":"x"}`,
 	}}
-	row := replayOne(context.Background(), c, tmpl, llm, scorer.DefaultModel, 5000)
+	row := ReplayOne(context.Background(), c, tmpl, llm, scorer.DefaultModel, 5000)
 	assert.NotEmpty(t, row.Error)
 	assert.Contains(t, row.Error, "decision")
 }
@@ -133,7 +130,7 @@ func TestReplayOne_MissingFields(t *testing.T) {
 	llm := &fakeLLM{resp: scorer.CompleteResponse{
 		Text: `{"foo":"bar"}`,
 	}}
-	row := replayOne(context.Background(), c, tmpl, llm, scorer.DefaultModel, 5000)
+	row := ReplayOne(context.Background(), c, tmpl, llm, scorer.DefaultModel, 5000)
 	assert.NotEmpty(t, row.Error)
 	assert.Contains(t, row.Error, "missing fields")
 }

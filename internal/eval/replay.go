@@ -1,7 +1,4 @@
-//go:build never
-// +build never
-
-package main
+package eval
 
 import (
 	"context"
@@ -20,24 +17,6 @@ import (
 	"github.com/lizhaojie/tvbot/internal/domain/strategy"
 )
 
-// ReplayCase is one signal worth of input for replay: enough columns from
-// signals + agent_evaluations + position_history to (a) reconstruct the
-// ScoreInput, (b) compare to the old score, (c) attribute realized PnL.
-type ReplayCase struct {
-	SignalID      int64
-	StrategyID    string
-	Symbol        string
-	Kind          string
-	SignalPrice   decimal.Decimal
-	TVTimestampMs int64
-	OldScore      int
-	OldDecision   string
-	OldReason     string
-	HistoryJSON   []byte // raw agent_evaluations.history_json
-	PnLUSDC       *float64
-	HasPnL        bool
-}
-
 // historySnapshot mirrors the JSON shape persisted by LLMScorer.persistEval.
 // Field tags (snake_case) match the scorer's serialization.
 type historySnapshot struct {
@@ -48,10 +27,10 @@ type historySnapshot struct {
 	HighVolWindows  []string                  `json:"high_vol_windows"`
 }
 
-// replayOne reconstructs ScoreInput from c, renders the new template,
+// ReplayOne reconstructs ScoreInput from c, renders the new template,
 // calls llm, parses, and returns one ReplayRow. Never panics; any failure
 // fills Row.Error and leaves NewScore=0/NewDecision="".
-func replayOne(
+func ReplayOne(
 	ctx context.Context,
 	c ReplayCase,
 	tmpl *template.Template,
@@ -139,13 +118,13 @@ func replayOne(
 	return row
 }
 
-// loadReplayCases pulls every signal that's been agent-evaluated since
+// LoadReplayCases pulls every signal that's been agent-evaluated since
 // `cutoff`, with its old score/decision/reasoning, history snapshot, and
-// (if the trade closed) realized PnL.
-func loadReplayCases(ctx context.Context, pool *pgxpool.Pool, cutoff time.Time, max int) ([]ReplayCase, error) {
+// (if the trade closed) realized PnL. `max<=0` means unbounded.
+func LoadReplayCases(ctx context.Context, pool *pgxpool.Pool, cutoff time.Time, max int) ([]ReplayCase, error) {
 	limit := max
 	if limit <= 0 {
-		limit = 1_000_000 // effectively unbounded
+		limit = 1_000_000
 	}
 	rows, err := pool.Query(ctx, `
 SELECT s.id, s.strategy_id, s.symbol, s.kind::text, s.signal_price, s.tv_timestamp_ms,
@@ -198,31 +177,24 @@ SELECT s.id, s.strategy_id, s.symbol, s.kind::text, s.signal_price, s.tv_timesta
 	return out, rows.Err()
 }
 
-// runReplay drives the full replay pipeline: load cases, render each one
-// against tmpl, aggregate, return ReplayReport. Concurrency is clamped
-// to [1, 10].
-func runReplay(
+// RunReplay drives the replay pipeline over pre-loaded cases:
+// dispatch ReplayOne concurrently, aggregate the rows, return a
+// ReplayReport. Concurrency is clamped to [1, 10]. The caller is
+// responsible for loading the cases (LoadReplayCases) so it can record
+// samples_total before dispatching (e.g. for progress polling).
+func RunReplay(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	cases []ReplayCase,
 	tmpl *template.Template,
 	llm scorer.LLMClient,
 	model string,
-	timeoutMs int,
-	cutoff time.Time,
-	since string,
-	promptFile string,
-	max, concurrency int,
-) (ReplayReport, error) {
+	timeoutMs, concurrency int,
+) ReplayReport {
 	if concurrency < 1 {
 		concurrency = 1
 	}
 	if concurrency > 10 {
 		concurrency = 10
-	}
-
-	cases, err := loadReplayCases(ctx, pool, cutoff, max)
-	if err != nil {
-		return ReplayReport{}, err
 	}
 
 	rows := make([]ReplayRow, len(cases))
@@ -234,12 +206,11 @@ func runReplay(
 		go func(i int, c ReplayCase) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			rows[i] = replayOne(ctx, c, tmpl, llm, model, timeoutMs)
+			rows[i] = ReplayOne(ctx, c, tmpl, llm, model, timeoutMs)
 		}(i, c)
 	}
 	wg.Wait()
 
-	// Sample / has-PnL counts.
 	withPnL := 0
 	for _, r := range rows {
 		if r.Error == "" && r.HasPnL {
@@ -247,97 +218,27 @@ func runReplay(
 		}
 	}
 
-	// Spearman: separate (score, pnl) pairs for v1 and v2.
-	v1Scores, v1Pnls := extractScoresAndPnLs(rows, func(r ReplayRow) int { return r.OldScore })
-	v2Scores, v2Pnls := extractScoresAndPnLs(rows, func(r ReplayRow) int { return r.NewScore })
+	v1Scores, v1Pnls := ExtractScoresAndPnLs(rows, func(r ReplayRow) int { return r.OldScore })
+	v2Scores, v2Pnls := ExtractScoresAndPnLs(rows, func(r ReplayRow) int { return r.NewScore })
 
 	report := ReplayReport{
-		Since:      since,
-		PromptFile: promptFile,
 		SampleSize: len(rows),
 		WithPnL:    withPnL,
-		V1Spearman: spearman(v1Scores, v1Pnls),
-		V2Spearman: spearman(v2Scores, v2Pnls),
-		V1Buckets:  bucketize(rows, func(r ReplayRow) int { return r.OldScore }),
-		V2Buckets:  bucketize(rows, func(r ReplayRow) int { return r.NewScore }),
-		Flips:      flipMatrix(rows),
+		V1Spearman: Spearman(v1Scores, v1Pnls),
+		V2Spearman: Spearman(v2Scores, v2Pnls),
+		V1Buckets:  Bucketize(rows, func(r ReplayRow) int { return r.OldScore }),
+		V2Buckets:  Bucketize(rows, func(r ReplayRow) int { return r.NewScore }),
+		Flips:      FlipMatrixOf(rows),
 		Rows:       append([]ReplayRow{}, rows...),
 	}
-	sortByDeltaScoreDesc(report.Rows)
-	return report, nil
+	SortByDeltaScoreDesc(report.Rows)
+	return report
 }
 
-// runReplayMode is invoked from main when --replay is given.
-func runReplayMode(
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	since string,
-	cutoff time.Time,
-	promptFile string,
-	maxN, concurrency int,
-	reportPath, jsonPath, modelOverride string,
-) {
-	if promptFile == "" {
-		fail("--replay requires --prompt-file")
-	}
-
-	tmplBytes, err := os.ReadFile(promptFile)
-	if err != nil {
-		fail("read prompt file: %v", err)
-	}
-	tmpl, err := template.New("user").Parse(string(tmplBytes))
-	if err != nil {
-		fail("parse prompt template: %v", err)
-	}
-
-	apiKey, model, baseURL, timeoutMs := loadLLMConfig(ctx, pool)
-	if modelOverride != "" {
-		model = modelOverride
-	}
-	if env := os.Getenv("LLM_API_KEY"); env != "" {
-		apiKey = env
-	}
-	if apiKey == "" {
-		fail("no LLM API key (set LLM_API_KEY env or system_state.llm_api_key)")
-	}
-	llm := scorer.NewAnthropicClient(apiKey, baseURL)
-
-	report, err := runReplay(ctx, pool, tmpl, llm, model, timeoutMs,
-		cutoff, since, promptFile, maxN, concurrency)
-	if err != nil {
-		fail("run replay: %v", err)
-	}
-
-	if err := renderReplayText(os.Stdout, report); err != nil {
-		fail("render text: %v", err)
-	}
-	if reportPath != "" {
-		f, err := os.Create(reportPath)
-		if err != nil {
-			fail("create report: %v", err)
-		}
-		defer f.Close()
-		if err := renderReplayHTML(f, report); err != nil {
-			fail("render html: %v", err)
-		}
-		fmt.Fprintf(os.Stderr, "html report written to %s\n", reportPath)
-	}
-	if jsonPath != "" {
-		f, err := os.Create(jsonPath)
-		if err != nil {
-			fail("create json: %v", err)
-		}
-		defer f.Close()
-		if err := renderReplayJSON(f, report); err != nil {
-			fail("render json: %v", err)
-		}
-		fmt.Fprintf(os.Stderr, "json report written to %s\n", jsonPath)
-	}
-}
-
-// loadLLMConfig pulls (api_key, model, base_url, timeout_ms) from
+// LoadLLMConfig pulls (api_key, model, base_url, timeout_ms) from
 // system_state. Falls back to library defaults if columns are NULL/empty.
-func loadLLMConfig(ctx context.Context, pool *pgxpool.Pool) (apiKey, model, baseURL string, timeoutMs int) {
+// On query failure, prints a warning to stderr and returns defaults.
+func LoadLLMConfig(ctx context.Context, pool *pgxpool.Pool) (apiKey, model, baseURL string, timeoutMs int) {
 	row := pool.QueryRow(ctx, `
 SELECT llm_api_key, agent_scorer_model, llm_api_base_url, agent_scorer_timeout_ms
   FROM system_state LIMIT 1`)
@@ -353,4 +254,11 @@ SELECT llm_api_key, agent_scorer_model, llm_api_base_url, agent_scorer_timeout_m
 		timeoutMs = 5000
 	}
 	return
+}
+
+// MakeLLMClient constructs the production LLM client. Centralized here so
+// cmd/agent-eval and the Phase 2 web worker share one place that knows
+// which scorer constructor to call.
+func MakeLLMClient(apiKey, baseURL string) scorer.LLMClient {
+	return scorer.NewAnthropicClient(apiKey, baseURL)
 }
