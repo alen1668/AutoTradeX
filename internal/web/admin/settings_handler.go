@@ -261,3 +261,57 @@ func (h *SettingsHandler) SaveLLMAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	http.Redirect(w, r, "/settings?saved=1", http.StatusSeeOther)
 }
+
+// SaveMacro handles POST /settings/macro — updates regime/calendar/news
+// worker flags + intervals + news API key/model. Enabling News without an
+// LLM API key is rejected (precheck) so we never get into a state where
+// the worker would spam fail-mode rows.
+func (h *SettingsHandler) SaveMacro(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	regimeEnabled := r.FormValue("regime_enabled") == "on"
+	calendarEnabled := r.FormValue("calendar_enabled") == "on"
+	newsEnabled := r.FormValue("news_enabled") == "on"
+	regimeInterval, err := strconv.Atoi(strings.TrimSpace(r.FormValue("regime_interval_min")))
+	if err != nil || regimeInterval < 1 || regimeInterval > 240 {
+		http.Error(w, "regime_interval_min must be 1..240", http.StatusBadRequest)
+		return
+	}
+	newsInterval, err := strconv.Atoi(strings.TrimSpace(r.FormValue("news_interval_min")))
+	if err != nil || newsInterval < 1 || newsInterval > 60 {
+		http.Error(w, "news_interval_min must be 1..60", http.StatusBadRequest)
+		return
+	}
+	newsAPIKey := strings.TrimSpace(r.FormValue("news_api_key"))
+	newsModel := strings.TrimSpace(r.FormValue("news_llm_model"))
+	if newsModel == "" {
+		http.Error(w, "news_llm_model required", http.StatusBadRequest)
+		return
+	}
+	if newsEnabled {
+		cur, err := h.repo.Get(r.Context(), h.pool)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if newsAPIKey == "" {
+			http.Error(w, "启用 News 需要先填 CryptoPanic API Key", http.StatusBadRequest)
+			return
+		}
+		if cur.LLMAPIKey == "" {
+			http.Error(w, "启用 News 需要先在 /settings 配置 LLM API Key", http.StatusBadRequest)
+			return
+		}
+	}
+	if err := h.repo.UpdateMacro(r.Context(), h.pool,
+		regimeEnabled, regimeInterval,
+		calendarEnabled,
+		newsEnabled, newsInterval, newsAPIKey, newsModel,
+	); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/settings?saved=1", http.StatusSeeOther)
+}

@@ -191,4 +191,62 @@
     <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">保存 API 配置</button>
   </form>
 </div>
+
+<div class="bg-white shadow rounded p-6 mb-6">
+  <h2 class="text-lg font-semibold mb-4">宏观上下文 — Regime / Calendar / News</h2>
+  <p class="text-sm text-gray-600 mb-4">
+    三个独立后台 worker，<strong>仅作为 scorer 的 prompt 上下文输入</strong>，不会改变阈值或硬风控。
+    任一失败均 fail-open。启用 News 需先配置上方"LLM API Key"。
+  </p>
+  <form method="POST" action="/settings/macro" class="space-y-4 max-w-2xl">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="border rounded p-3">
+        <h3 class="font-medium mb-2">Regime worker</h3>
+        <label class="flex items-center mb-2">
+          <input type="checkbox" name="regime_enabled" {{ if .Settings.RegimeEnabled }}checked{{ end }} class="mr-2">
+          <span class="text-sm">启用（每 N 分钟计算 BTC 大盘 regime）</span>
+        </label>
+        <label class="block text-sm font-medium">间隔（分钟）</label>
+        <input type="number" name="regime_interval_min" value="{{ .Settings.RegimeIntervalMin }}" min="5" max="240" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+      </div>
+      <div class="border rounded p-3">
+        <h3 class="font-medium mb-2">Calendar worker</h3>
+        <label class="flex items-center mb-2">
+          <input type="checkbox" name="calendar_enabled" {{ if .Settings.CalendarEnabled }}checked{{ end }} class="mr-2">
+          <span class="text-sm">启用（每 24h 抓 Forex Factory）</span>
+        </label>
+        <p class="text-xs text-gray-500 mt-1">无需配置，只关心 USD 高重要性事件 + 全球性事件。</p>
+      </div>
+      <div class="border rounded p-3 md:col-span-2">
+        <h3 class="font-medium mb-2">News worker（产生 LLM 调用费）</h3>
+        <label class="flex items-center mb-2">
+          <input type="checkbox" name="news_enabled" {{ if .Settings.NewsEnabled }}checked{{ end }} class="mr-2">
+          <span class="text-sm">启用（每 N 分钟拉 CryptoPanic + LLM 解读）</span>
+        </label>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div>
+            <label class="block text-sm font-medium">间隔（分钟）</label>
+            <input type="number" name="news_interval_min" value="{{ .Settings.NewsIntervalMin }}" min="5" max="60" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+          </div>
+          <div>
+            <label class="block text-sm font-medium">CryptoPanic API Key</label>
+            <input type="text" name="news_api_key" value="{{ .Settings.NewsAPIKey }}" placeholder="cryptopanic auth_token" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono">
+          </div>
+          <div>
+            <label class="block text-sm font-medium">LLM 模型</label>
+            <input type="text" name="news_llm_model" value="{{ .Settings.NewsLLMModel }}" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono">
+          </div>
+        </div>
+        {{ if not .Settings.LLMAPIKey }}
+        <p class="text-xs text-red-600 mt-2">⚠ 未配置 LLM API key，启用 News 会被前置校验拒绝。请先到上方"LLM API"区块配置。</p>
+        {{ end }}
+      </div>
+    </div>
+    <p class="text-xs text-gray-500">
+      worker 修改 enabled 标记后下一个 tick 生效；间隔修改在下一次 tick 后生效。
+      数据落库：<code>market_regime</code> / <code>economic_events</code> / <code>news_snapshots</code>。
+    </p>
+    <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">保存宏观上下文配置</button>
+  </form>
+</div>
 {{ end }}

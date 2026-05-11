@@ -375,6 +375,7 @@ func main() {
 			r.Post("/settings/advanced", settingsHandler.SaveAdvanced)
 			r.Post("/settings/agent-scorer", settingsHandler.SaveAgentScorer)
 			r.Post("/settings/llm-api", settingsHandler.SaveLLMAPI)
+			r.Post("/settings/macro", settingsHandler.SaveMacro)
 
 			// Status partial (HTMX hx-get for status bar auto-refresh)
 			r.Get("/_partials/status", statusHandler.Partial)
