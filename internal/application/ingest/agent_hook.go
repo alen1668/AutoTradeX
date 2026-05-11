@@ -16,6 +16,7 @@ import (
 	"github.com/lizhaojie/tvbot/internal/agent/scorer"
 	sigpkg "github.com/lizhaojie/tvbot/internal/domain/signal"
 	"github.com/lizhaojie/tvbot/internal/domain/strategy"
+	"github.com/lizhaojie/tvbot/internal/eval"
 	"github.com/lizhaojie/tvbot/internal/notify"
 	"github.com/lizhaojie/tvbot/internal/store"
 )
@@ -33,6 +34,8 @@ type AgentHook struct {
 	portfolioProv *portfolio.Provider
 	marketProv    *market.Provider
 
+	publisher eval.Publisher // nil-safe; Phase 3 wires in cmd/tvbot/main.go
+
 	scorerOverride scorer.Scorer // tests inject a stub here
 
 	llmAlertMu       sync.Mutex
@@ -45,6 +48,31 @@ type AgentHook struct {
 // you don't want wired (the hook will skip that section of the prompt).
 func NewAgentHook(f *scorer.Factory, hp *history.Provider, pp *portfolio.Provider, mp *market.Provider) *AgentHook {
 	return &AgentHook{scorerFactory: f, historyProv: hp, portfolioProv: pp, marketProv: mp}
+}
+
+// WithPublisher wires the Phase 3 SSE broker into the hook. Returns h for
+// builder-style chaining. nil is accepted and turns publish into a no-op.
+func (h *AgentHook) WithPublisher(p eval.Publisher) *AgentHook {
+	h.publisher = p
+	return h
+}
+
+// publishScoreEvent fires an agent_score EvalEvent if a publisher is wired.
+// Called from evaluate() once a verdict is reached. Never blocks (Broker
+// is non-blocking) and never affects the trading decision.
+func (h *AgentHook) publishScoreEvent(signalID int64, symbol string, score *int, decision string, latencyMs int) {
+	if h == nil || h.publisher == nil {
+		return
+	}
+	h.publisher.Publish(eval.EvalEvent{
+		Kind:       "agent_score",
+		SignalID:   signalID,
+		Symbol:     symbol,
+		AgentScore: score,
+		Decision:   decision,
+		LatencyMs:  latencyMs,
+		OccurredAt: time.Now().Unix(),
+	})
 }
 
 // agentVerdict tells the ingest service what to do after agent scoring.
@@ -89,6 +117,14 @@ func (h *AgentHook) evaluate(
 	}
 
 	res, _ := sc.Score(ctx, in)
+
+	// Phase 3: push agent_score event to any SSE subscribers. Fire-and-forget.
+	var scorePtr *int
+	if res.Score >= 0 {
+		s := res.Score
+		scorePtr = &s
+	}
+	h.publishScoreEvent(signalID, sig.Symbol, scorePtr, res.Decision, res.LatencyMs)
 
 	h.maybeAlertUnhealthy(ctx, notifier)
 
