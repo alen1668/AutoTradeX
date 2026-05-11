@@ -1,87 +1,14 @@
-package main
+package eval
 
 import (
-	"encoding/json"
 	"math"
 	"sort"
 )
 
-// nilIfNaN returns nil when v is NaN (so encoding/json emits null instead
-// of failing). Bucket / FlipMatrix / ReplayReport use it via MarshalJSON.
-func nilIfNaN(v float64) any {
-	if math.IsNaN(v) {
-		return nil
-	}
-	return v
-}
-
-// MarshalJSON for Bucket — turns NaN AvgPnL/WinPct into JSON null.
-func (b Bucket) MarshalJSON() ([]byte, error) {
-	return json.Marshal(struct {
-		Label   string `json:"label"`
-		Signals int    `json:"signals"`
-		Trades  int    `json:"trades"`
-		AvgPnL  any    `json:"avg_pnl"`
-		WinPct  any    `json:"win_pct"`
-	}{b.Label, b.Signals, b.Trades, nilIfNaN(b.AvgPnL), nilIfNaN(b.WinPct)})
-}
-
-// MarshalJSON for FlipMatrix — turns NaN flip-quality avg PnL into JSON null.
-func (m FlipMatrix) MarshalJSON() ([]byte, error) {
-	return json.Marshal(struct {
-		ApproveToApprove       int `json:"approve_to_approve"`
-		ApproveToAbandon       int `json:"approve_to_abandon"`
-		AbandonToApprove       int `json:"abandon_to_approve"`
-		AbandonToAbandon       int `json:"abandon_to_abandon"`
-		ApproveToAbandonAvgPnL any `json:"approve_to_abandon_avg_pnl"`
-		AbandonToApproveAvgPnL any `json:"abandon_to_approve_avg_pnl"`
-	}{m.ApproveToApprove, m.ApproveToAbandon, m.AbandonToApprove, m.AbandonToAbandon,
-		nilIfNaN(m.ApproveToAbandonAvgPnL), nilIfNaN(m.AbandonToApproveAvgPnL)})
-}
-
-// ReplayRow is the per-signal record produced by replayOne. Aggregation
-// functions operate on slices of these. PnLUSDC is nil when the signal had
-// no closed trade; HasPnL distinguishes nil from "0.0 PnL".
-type ReplayRow struct {
-	SignalID    int64
-	StrategyID  string
-	Symbol      string
-	Kind        string
-	OldScore    int
-	OldDecision string
-	OldReason   string
-	NewScore    int
-	NewDecision string
-	NewReason   string
-	PnLUSDC     *float64
-	HasPnL      bool
-	Error       string // non-empty when LLM call / parse failed for new prompt
-}
-
-// Bucket is one row of the 5-tier score-vs-PnL summary.
-type Bucket struct {
-	Label   string
-	Signals int     // count of signals in bucket
-	Trades  int     // count of has-PnL signals in bucket
-	AvgPnL  float64 // mean of PnLs over Trades; NaN if Trades==0
-	WinPct  float64 // % of Trades with PnL>0; NaN if Trades==0
-}
-
-// FlipMatrix counts the four old×new decision combinations and the avg PnL
-// for the two true-flip cells.
-type FlipMatrix struct {
-	ApproveToApprove       int
-	ApproveToAbandon       int
-	AbandonToApprove       int
-	AbandonToAbandon       int
-	ApproveToAbandonAvgPnL float64 // NaN if no has-PnL flips of this kind
-	AbandonToApproveAvgPnL float64
-}
-
-// spearman computes the Spearman rank correlation. Inputs must be of equal
+// Spearman computes the Spearman rank correlation. Inputs must be of equal
 // length and have at least 2 elements; otherwise NaN. Ties handled with
 // average ranks. Excludes ERROR rows by upstream filtering, not here.
-func spearman(scores []int, pnls []float64) float64 {
+func Spearman(scores []int, pnls []float64) float64 {
 	n := len(scores)
 	if n != len(pnls) || n < 2 {
 		return math.NaN()
@@ -151,12 +78,12 @@ func pearson(xs, ys []float64) float64 {
 	return num / math.Sqrt(dx2*dy2)
 }
 
-// bucketize partitions rows into 5 buckets by scoreOf(row). Boundaries:
+// Bucketize partitions rows into 5 buckets by scoreOf(row). Boundaries:
 //
 //	[0,20) [20,40) [40,60) [60,80) [80,100]
 //
 // 100 included in last bucket.
-func bucketize(rows []ReplayRow, scoreOf func(ReplayRow) int) []Bucket {
+func Bucketize(rows []ReplayRow, scoreOf func(ReplayRow) int) []Bucket {
 	bs := []Bucket{
 		{Label: "0-20"}, {Label: "20-40"}, {Label: "40-60"},
 		{Label: "60-80"}, {Label: "80-100"},
@@ -209,9 +136,9 @@ func bucketIndex(s int) int {
 	}
 }
 
-// flipMatrix counts the four old×new decision combinations. Rows with
+// FlipMatrixOf counts the four old×new decision combinations. Rows with
 // Error or with non-{approve,abandon} decisions are skipped.
-func flipMatrix(rows []ReplayRow) FlipMatrix {
+func FlipMatrixOf(rows []ReplayRow) FlipMatrix {
 	var m FlipMatrix
 	var a2bSum, b2aSum float64
 	var a2bN, b2aN int
@@ -251,25 +178,25 @@ func flipMatrix(rows []ReplayRow) FlipMatrix {
 	return m
 }
 
-// sortByDeltaScoreDesc sorts in place by |new-old| descending, stable.
-func sortByDeltaScoreDesc(rows []ReplayRow) {
+// SortByDeltaScoreDesc sorts in place by |new-old| descending, stable.
+func SortByDeltaScoreDesc(rows []ReplayRow) {
 	sort.SliceStable(rows, func(i, j int) bool {
-		di := abs(rows[i].NewScore - rows[i].OldScore)
-		dj := abs(rows[j].NewScore - rows[j].OldScore)
+		di := absInt(rows[i].NewScore - rows[i].OldScore)
+		dj := absInt(rows[j].NewScore - rows[j].OldScore)
 		return di > dj
 	})
 }
 
-func abs(x int) int {
+func absInt(x int) int {
 	if x < 0 {
 		return -x
 	}
 	return x
 }
 
-// extractScoresAndPnLs pulls the slices Spearman needs from a row list,
+// ExtractScoresAndPnLs pulls the slices Spearman needs from a row list,
 // filtering out Error rows and rows without PnL.
-func extractScoresAndPnLs(rows []ReplayRow, scoreOf func(ReplayRow) int) (scores []int, pnls []float64) {
+func ExtractScoresAndPnLs(rows []ReplayRow, scoreOf func(ReplayRow) int) (scores []int, pnls []float64) {
 	for _, r := range rows {
 		if r.Error != "" || !r.HasPnL || r.PnLUSDC == nil {
 			continue

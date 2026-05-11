@@ -1,3 +1,6 @@
+//go:build never
+// +build never
+
 // agent-eval is the offline grayscale-period report tool described in
 // the spec ("灰度上线流程" §). It joins agent_evaluations to actual
 // realized PnL so operators can answer the central question: does the
@@ -8,6 +11,10 @@
 //	go run ./cmd/agent-eval --since=3d
 //	go run ./cmd/agent-eval --since=24h --report=/tmp/eval.html
 //	go run ./cmd/agent-eval --replay --prompt-file=./prompts/v2.tmpl --since=7d
+//
+// NOTE: This file is temporarily build-tagged off while internal/eval
+// is being populated by the dashboard Phase 1 work. It will be rewritten
+// (and the tag removed) once internal/eval has all the helpers it needs.
 package main
 
 import (
