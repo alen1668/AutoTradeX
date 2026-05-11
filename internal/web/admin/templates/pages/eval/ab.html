@@ -1,0 +1,62 @@
+{{ define "content" }}
+<div class="space-y-6">
+  <div>
+    <a href="/eval/replays/{{ .Run.ID }}" class="text-blue-600 text-sm">← 返回详情</a>
+    <h1 class="text-2xl font-bold mt-2">
+      A/B 散点 · Replay #{{ .Run.ID }}
+      <span class="text-sm font-normal text-gray-600">·
+        {{ derefStr .Run.PromptName }} ·
+        <code>{{ .Run.Model }}</code> ·
+        since={{ .Run.SinceWindow }}
+      </span>
+    </h1>
+  </div>
+
+  {{ if ne .Run.Status "done" }}
+    <div class="bg-yellow-50 border border-yellow-200 rounded p-4">
+      <h2 class="font-semibold text-yellow-700">运行尚未完成</h2>
+      <p class="text-sm mt-1">当前状态: <b>{{ .Run.Status }}</b>。完成后再回来看 A/B 散点。</p>
+      <a href="/eval/replays/{{ .Run.ID }}" class="inline-block mt-2 px-3 py-1 bg-blue-600 text-white text-sm rounded">返回详情页轮询进度</a>
+    </div>
+  {{ else }}
+    <div class="bg-white shadow rounded p-4">
+      <h2 class="font-semibold mb-2">prod_score × replay_score 散点</h2>
+      <p class="text-xs text-gray-500 mb-3">点大小 = |pnl|;绿色 = 盈利,红色 = 亏损,灰色 = 未平仓</p>
+      <canvas id="abScatter" height="160"></canvas>
+    </div>
+
+    {{ if .Run.Summary }}
+      {{ template "eval_flip_matrix" .Run.Summary }}
+    {{ end }}
+
+    <script>
+    window.AB_ROWS = {{ .RowsJSON }};
+    </script>
+    <script src="/static/chart.umd.min.js"></script>
+    <script>
+    (function () {
+      const rows = (window.AB_ROWS || []).filter(r => r.NewScore != null);
+      const points = rows.map(r => ({
+        x: r.OldScore,
+        y: r.NewScore,
+        r: r.PnLUSDC != null ? Math.min(20, 2 + Math.sqrt(Math.abs(r.PnLUSDC))) : 3,
+        backgroundColor: r.PnLUSDC == null
+          ? "rgba(150,150,150,0.6)"
+          : (r.PnLUSDC >= 0 ? "rgba(34,197,94,0.6)" : "rgba(239,68,68,0.6)"),
+      }));
+      new Chart(document.getElementById("abScatter"), {
+        type: "bubble",
+        data: { datasets: [{ data: points }] },
+        options: {
+          scales: {
+            x: { min: 0, max: 100, title: { display: true, text: "prod_score" } },
+            y: { min: 0, max: 100, title: { display: true, text: "replay_score" } },
+          },
+          plugins: { legend: { display: false } },
+        },
+      });
+    })();
+    </script>
+  {{ end }}
+</div>
+{{ end }}

@@ -45,6 +45,50 @@ func (h *EvalHandler) WithBroker(b *eval.Broker) *EvalHandler {
 	return h
 }
 
+// ABCompare handles GET /eval/ab/{id}. Renders a Phase 3 A/B scatter
+// (Chart.js) using the replay_run_rows already persisted by Phase 2,
+// alongside the flip matrix from the run's summary_json. When the run
+// isn't done yet, shows a "运行尚未完成" hint linking back to detail.
+func (h *EvalHandler) ABCompare(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := withTimeout(r)
+	defer cancel()
+
+	id := parseInt64ID(r)
+	if id <= 0 {
+		http.NotFound(w, r)
+		return
+	}
+	run, err := h.store.GetRun(ctx, id)
+	if err != nil {
+		http.Error(w, "load: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	if run == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	var rows []eval.ReplayRow
+	if run.Status == "done" {
+		rows, err = h.store.ListRows(ctx, id, 2000)
+		if err != nil {
+			http.Error(w, "rows: "+err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+	}
+
+	rowsJSON, _ := json.Marshal(rows)
+	data := map[string]any{
+		"Run":      run,
+		"Rows":     rows,
+		"RowsJSON": template.JS(rowsJSON),
+	}
+	if h.statusH != nil {
+		data = h.statusH.WithStatus(r, data)
+	}
+	h.render.Render(w, http.StatusOK, "eval/ab", data)
+}
+
 // Stream is the SSE endpoint that pushes EvalEvents to the browser as
 // they happen. Each connection becomes one Broker subscriber for its
 // lifetime. Returns 503 when no broker is wired (tests / pre-Phase-3

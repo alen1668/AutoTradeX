@@ -413,3 +413,67 @@ func TestEvalHandler_Index_InjectsInitJSON(t *testing.T) {
 	require.Contains(t, body, `"scores":`)
 	require.Contains(t, body, `"buckets":`)
 }
+
+func TestEvalHandler_AB_NotFound(t *testing.T) {
+	pool := newEvalTestPool(t)
+	renderer, _ := NewRenderer()
+	h := NewEvalHandler(renderer, pool)
+	r := chi.NewRouter()
+	r.Get("/eval/ab/{id}", h.ABCompare)
+
+	req := httptest.NewRequest("GET", "/eval/ab/9999", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestEvalHandler_AB_DoneRun_RendersScatter(t *testing.T) {
+	pool := newEvalTestPool(t)
+	renderer, _ := NewRenderer()
+	h := NewEvalHandler(renderer, pool)
+	r := chi.NewRouter()
+	r.Get("/eval/ab/{id}", h.ABCompare)
+
+	store := eval.NewStore(pool)
+	ctx := context.Background()
+	id, _ := store.CreateRun(ctx, eval.ReplayRun{
+		SinceWindow: "1h", SinceCutoff: time.Now().Unix(),
+		Model: "claude-sonnet-4-6", PromptText: "p", PromptSHA256: "abcd1234",
+		Status: "running",
+	})
+	rep := eval.ReplayReport{
+		SampleSize: 2, V1Spearman: 0.1, V2Spearman: 0.3,
+		Flips:      eval.FlipMatrix{ApproveToApprove: 1, ApproveToAbandon: 1},
+	}
+	require.NoError(t, store.MarkRunDone(ctx, id, &rep, 2, 0))
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/eval/ab/%d", id), nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	require.Contains(t, body, "abScatter")        // canvas id
+	require.Contains(t, body, "Decision Flip Matrix")
+	require.Contains(t, body, "claude-sonnet-4-6")
+}
+
+func TestEvalHandler_AB_NotDoneShowsHint(t *testing.T) {
+	pool := newEvalTestPool(t)
+	renderer, _ := NewRenderer()
+	h := NewEvalHandler(renderer, pool)
+	r := chi.NewRouter()
+	r.Get("/eval/ab/{id}", h.ABCompare)
+
+	store := eval.NewStore(pool)
+	id, _ := store.CreateRun(context.Background(), eval.ReplayRun{
+		SinceWindow: "1h", SinceCutoff: time.Now().Unix(),
+		Model: "claude-sonnet-4-6", PromptText: "p", PromptSHA256: "h",
+		Status: "running",
+	})
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/eval/ab/%d", id), nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Contains(t, w.Body.String(), "运行尚未完成")
+}
