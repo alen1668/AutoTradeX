@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"golang.org/x/net/html/charset"
 )
 
 // DefaultForexFactoryURL is the community-maintained mirror; the official
@@ -67,8 +69,12 @@ func (f *ForexFactoryFetcher) Fetch(ctx context.Context) ([]Event, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Forex Factory's feed declares <?xml encoding="windows-1252"?>; the stdlib
+	// xml.Decoder only handles UTF-8/16 natively, so plug in a charset reader.
+	dec := xml.NewDecoder(strings.NewReader(string(body)))
+	dec.CharsetReader = charset.NewReaderLabel
 	var parsed xmlEvents
-	if err := xml.Unmarshal(body, &parsed); err != nil {
+	if err := dec.Decode(&parsed); err != nil {
 		return nil, fmt.Errorf("ff parse: %w", err)
 	}
 	et, err := time.LoadLocation("America/New_York")
