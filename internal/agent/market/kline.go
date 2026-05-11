@@ -10,11 +10,22 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// KlineClient abstracts the "fetch last N 1h closes" capability so the
-// scorer test suite can use a fake; the production implementation in
-// binance_kline.go wraps adshao/go-binance.
+// KlineClient abstracts two K-line fetching shapes:
+// (a) "last N 1h closes" (cheap, used by the scorer's per-symbol MarketContext)
+// (b) "last N 1h OHLC candles" (used by the regime worker that needs high/low)
+// The production implementation in binance_kline.go wraps adshao/go-binance.
 type KlineClient interface {
 	Get1hCloses(ctx context.Context, symbol string, limit int) ([]decimal.Decimal, error)
+	Get1hOHLC(ctx context.Context, symbol string, limit int) ([]Candle, error)
+}
+
+// Candle is one 1h OHLC bar. OpenTime is the bar's open boundary in UTC.
+type Candle struct {
+	OpenTime time.Time
+	Open     decimal.Decimal
+	High     decimal.Decimal
+	Low      decimal.Decimal
+	Close    decimal.Decimal
 }
 
 // MarketContext mirrors scorer.MarketContext field-for-field. Duplicated

@@ -13,6 +13,7 @@ import (
 
 type stubKlineClient struct {
 	closes []decimal.Decimal
+	ohlc   []Candle
 	err    error
 	calls  int
 }
@@ -26,6 +27,17 @@ func (s *stubKlineClient) Get1hCloses(ctx context.Context, symbol string, limit 
 		limit = len(s.closes)
 	}
 	return s.closes[len(s.closes)-limit:], nil
+}
+
+func (s *stubKlineClient) Get1hOHLC(ctx context.Context, symbol string, limit int) ([]Candle, error) {
+	s.calls++
+	if s.err != nil {
+		return nil, s.err
+	}
+	if limit > len(s.ohlc) {
+		limit = len(s.ohlc)
+	}
+	return s.ohlc[len(s.ohlc)-limit:], nil
 }
 
 // 24 linearly-rising closes 2280..2303
