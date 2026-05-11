@@ -81,3 +81,50 @@ func (b *Broker) subCount() int {
 	defer b.mu.RUnlock()
 	return len(b.subs)
 }
+
+// Publish fans evt out to every current subscriber. Non-blocking: when a
+// subscriber's buffer is full the event is dropped for that sub and its
+// `drops` counter increments. Three consecutive drops force-removes that
+// sub (closes channel + deletes from the map). A successful send resets
+// the counter to 0.
+func (b *Broker) Publish(evt EvalEvent) {
+	defer func() {
+		if r := recover(); r != nil {
+			b.log.Warn().Interface("panic", r).Msg("broker: Publish recovered")
+		}
+	}()
+
+	b.mu.RLock()
+	subs := make([]*subscriber, 0, len(b.subs))
+	for _, s := range b.subs {
+		subs = append(subs, s)
+	}
+	b.mu.RUnlock()
+
+	for _, s := range subs {
+		select {
+		case s.ch <- evt:
+			s.drops.Store(0)
+		default:
+			if s.drops.Add(1) >= 3 {
+				b.dropSub(s)
+			}
+		}
+	}
+}
+
+// dropSub force-removes a subscriber that's persistently failing to drain.
+// Idempotent — guards against the rare case where two goroutines race to
+// drop the same sub.
+func (b *Broker) dropSub(s *subscriber) {
+	b.mu.Lock()
+	if _, ok := b.subs[s.id]; !ok {
+		b.mu.Unlock()
+		return
+	}
+	delete(b.subs, s.id)
+	b.mu.Unlock()
+	b.log.Warn().Int64("sub_id", s.id).Msg("broker: dropping slow subscriber")
+	defer func() { _ = recover() }() // chan may already be closed; harmless
+	close(s.ch)
+}
