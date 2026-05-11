@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<weeklyevents>
+  <event>
+    <title>CPI m/m</title>
+    <country>USD</country>
+    <date>05-13-2026</date>
+    <time>12:30pm</time>
+    <impact>High</impact>
+  </event>
+  <event>
+    <title>Retail Sales</title>
+    <country>USD</country>
+    <date>05-14-2026</date>
+    <time>12:30pm</time>
+    <impact>Medium</impact>
+  </event>
+  <event>
+    <title>FOMC Statement</title>
+    <country>USD</country>
+    <date>05-15-2026</date>
+    <time>2:00pm</time>
+    <impact>High</impact>
+  </event>
+  <event>
+    <title>Manufacturing PMI</title>
+    <country>EUR</country>
+    <date>05-15-2026</date>
+    <time>8:00am</time>
+    <impact>High</impact>
+  </event>
+</weeklyevents>
