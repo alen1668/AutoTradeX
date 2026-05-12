@@ -12,26 +12,43 @@
     </div>
   </div>
 
-  <div id="perp-help" class="hidden bg-blue-50 border border-blue-200 rounded p-4 text-sm space-y-2">
+  <div id="perp-help" class="hidden bg-blue-50 border border-blue-200 rounded p-4 text-sm space-y-3">
     <p class="font-semibold text-blue-900">📖 这个页面是干什么用的</p>
     <p class="text-gray-700">
-      Perp metrics worker 每 5 分钟从 binance 拉永续合约的三组指标 ——
-      <strong>funding rate</strong>（拥挤方向）、<strong>open interest 24h 变化</strong>（资金进出 + 价格对照）、
-      <strong>top-trader long/short ratio</strong>（大户多空仓位比），按 symbol 入库。
+      永续指标 worker 每 5 分钟从币安拉永续合约的三类市场情绪数据，按交易对入库。
+      这些数据会注入 scorer 的 prompt，让 LLM 在给 TradingView 信号打分时多看一层永续合约市场状态。
+      <strong>纯参考信息，不改 scorer 阈值，也不影响硬风控。</strong>
     </p>
-    <p class="text-gray-700">
-      这些指标会通过 macrocontext 注入 scorer 的 prompt 第 6 段（"永续指标"），
-      让 LLM 在打分时多看一层永续合约市场情绪。<strong>纯增量信息，不动 scorer 阈值，也不动硬风控。</strong>
-    </p>
-    <p class="text-gray-700"><strong>怎么读 derived labels</strong>：</p>
-    <ul class="list-disc list-inside ml-2 space-y-1 text-gray-700 text-xs">
-      <li><strong>funding</strong>：&gt;0.05% extreme_long / &gt;0.01% mild_long / ±0.01% neutral / &lt;-0.01% mild_short / &lt;-0.05% extreme_short</li>
-      <li><strong>OI signal</strong>：要求 |OI 24h| ≥ 3% 且 |price 24h| &gt; 0.5%。price↑+OI↑=new_longs（强趋势）/ price↑+OI↓=short_squeeze（空头补仓，多头脆）/ price↓+OI↑=new_shorts / price↓+OI↓=capitulation</li>
-      <li><strong>top L/S</strong>：&gt;2.0 strongly_bullish / &gt;1.3 bullish / 0.7~1.3 balanced / 0.5~0.7 bearish / &lt;0.5 strongly_bearish</li>
-    </ul>
+
+    <div class="bg-white rounded p-3 border border-blue-100 space-y-2">
+      <p class="font-semibold text-gray-800">三个指标怎么读：</p>
+      <table class="w-full text-xs text-gray-700">
+        <tr class="align-top">
+          <td class="font-semibold pr-3 py-1 w-24">资金费率</td>
+          <td>多头/空头哪边在为持仓付钱。正值=多头付钱给空头（多头拥挤），极端正值常被反向 fade。</td>
+        </tr>
+        <tr class="align-top border-t border-gray-100">
+          <td class="font-semibold pr-3 py-1">持仓量变化</td>
+          <td>跟价格一起读才有意义：价↑+持仓↑=新多入场（趋势强）；价↑+持仓↓=空头挤仓（多头脆）；价↓+持仓↑=新空入场；价↓+持仓↓=多头投降。</td>
+        </tr>
+        <tr class="align-top border-t border-gray-100">
+          <td class="font-semibold pr-3 py-1">大户多空比</td>
+          <td>币安头部持仓账户的多空仓位比例。&gt;1 偏多、&lt;1 偏空，极端值代表大户集中下注。</td>
+        </tr>
+      </table>
+    </div>
+
+    <details class="text-xs text-gray-600">
+      <summary class="cursor-pointer hover:text-gray-900">分类标签的阈值（英文是 prompt 里实际用的 label，鼠标悬停每个 chip 可看）</summary>
+      <ul class="list-disc list-inside ml-2 space-y-1 mt-2">
+        <li><strong>拥挤度</strong>：&gt;0.05% 多头极度拥挤(extreme_long) / &gt;0.01% 多头偏拥挤(mild_long) / ±0.01% 中性(neutral) / &lt;-0.01% 空头偏拥挤(mild_short) / &lt;-0.05% 空头极度拥挤(extreme_short)</li>
+        <li><strong>资金动向</strong>：需 |持仓 24h| ≥ 3% 且 |价格 24h| &gt; 0.5% 才有方向，否则归为"无明显方向(neutral)"</li>
+        <li><strong>大户倾向</strong>：&gt;2.0 大户强多 / &gt;1.3 大户偏多 / 0.7~1.3 多空均衡 / 0.5~0.7 大户偏空 / &lt;0.5 大户强空</li>
+      </ul>
+    </details>
+
     <p class="text-gray-500 text-xs">
-      worker 抓取的 symbol 列表 = 当前所有 enabled strategy 的 symbol ∪ BTCUSDT。
-      数据库表 <code>perp_metrics</code>；想直接 SQL 查也行。
+      worker 抓取的交易对 = 当前所有启用策略的交易对 ∪ BTCUSDT。数据库表 <code>perp_metrics</code>。
     </p>
   </div>
 
@@ -46,7 +63,7 @@
     </div>
   {{ else }}
     <form method="GET" class="flex items-center gap-2 text-sm">
-      <label class="text-gray-700">按 symbol 筛选：</label>
+      <label class="text-gray-700">按交易对筛选：</label>
       <select name="symbol" onchange="this.form.submit()" class="rounded border border-gray-300 px-3 py-1.5">
         <option value="">全部</option>
         {{ range .Symbols }}
@@ -61,14 +78,14 @@
         <thead class="bg-gray-50">
           <tr class="text-left">
             <th class="px-3 py-2">观测时间 <span class="text-xs text-gray-400 font-normal">(浏览器时区)</span></th>
-            <th class="px-3 py-2">Symbol</th>
-            <th class="px-3 py-2 text-right">Funding</th>
-            <th class="px-3 py-2">Funding label</th>
-            <th class="px-3 py-2 text-right">OI 24h %</th>
-            <th class="px-3 py-2">OI signal</th>
-            <th class="px-3 py-2 text-right">Price 24h %</th>
-            <th class="px-3 py-2 text-right">Top L/S</th>
-            <th class="px-3 py-2">L/S label</th>
+            <th class="px-3 py-2">交易对</th>
+            <th class="px-3 py-2 text-right" title="binance lastFundingRate: 每 8h 结算一次的多空互付费率">资金费率</th>
+            <th class="px-3 py-2" title="资金费率分类（拥挤方向）">拥挤度</th>
+            <th class="px-3 py-2 text-right" title="open interest 24h % 变化">持仓 24h</th>
+            <th class="px-3 py-2" title="持仓变化 × 价格变化的组合判断">资金动向</th>
+            <th class="px-3 py-2 text-right" title="24h 价格 % 变化（用于和持仓变化交叉判断）">价格 24h</th>
+            <th class="px-3 py-2 text-right" title="binance top-trader long/short position ratio (5min 周期)">大户多空比</th>
+            <th class="px-3 py-2" title="大户多空比的分类">大户倾向</th>
           </tr>
         </thead>
         <tbody>
@@ -78,29 +95,29 @@
             <td class="px-3 py-2 font-mono font-semibold">{{ .Symbol }}</td>
             <td class="px-3 py-2 text-right font-mono">{{ .FundingRatePct }}%</td>
             <td class="px-3 py-2">
-              {{ if eq .FundingLabel "extreme_long" }}<span class="px-2 py-0.5 bg-red-100 text-red-800 rounded text-xs font-semibold">extreme_long</span>
-              {{ else if eq .FundingLabel "mild_long" }}<span class="px-2 py-0.5 bg-orange-50 text-orange-700 rounded text-xs">mild_long</span>
-              {{ else if eq .FundingLabel "neutral" }}<span class="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">neutral</span>
-              {{ else if eq .FundingLabel "mild_short" }}<span class="px-2 py-0.5 bg-sky-50 text-sky-700 rounded text-xs">mild_short</span>
-              {{ else if eq .FundingLabel "extreme_short" }}<span class="px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs font-semibold">extreme_short</span>
+              {{ if eq .FundingLabel "extreme_long" }}<span title="extreme_long: 多头持仓为正向高费率付出极端代价，常预示见顶 fade 风险" class="px-2 py-0.5 bg-red-100 text-red-800 rounded text-xs font-semibold">多头极度拥挤</span>
+              {{ else if eq .FundingLabel "mild_long" }}<span title="mild_long: 多头小幅占优" class="px-2 py-0.5 bg-orange-50 text-orange-700 rounded text-xs">多头偏拥挤</span>
+              {{ else if eq .FundingLabel "neutral" }}<span title="neutral: 资金费率在 ±0.01% 内，多空均衡" class="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">中性</span>
+              {{ else if eq .FundingLabel "mild_short" }}<span title="mild_short: 空头小幅占优" class="px-2 py-0.5 bg-sky-50 text-sky-700 rounded text-xs">空头偏拥挤</span>
+              {{ else if eq .FundingLabel "extreme_short" }}<span title="extreme_short: 空头极度拥挤，常预示见底反弹" class="px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs font-semibold">空头极度拥挤</span>
               {{ else }}{{ .FundingLabel }}{{ end }}
             </td>
             <td class="px-3 py-2 text-right font-mono text-xs">{{ .OpenInterest24hPct }}%</td>
             <td class="px-3 py-2">
-              {{ if eq .OISignal "new_longs" }}<span class="px-2 py-0.5 bg-green-100 text-green-800 rounded text-xs">new_longs</span>
-              {{ else if eq .OISignal "new_shorts" }}<span class="px-2 py-0.5 bg-red-100 text-red-800 rounded text-xs">new_shorts</span>
-              {{ else if eq .OISignal "short_squeeze" }}<span class="px-2 py-0.5 bg-amber-100 text-amber-800 rounded text-xs">short_squeeze</span>
-              {{ else if eq .OISignal "capitulation" }}<span class="px-2 py-0.5 bg-purple-100 text-purple-800 rounded text-xs">capitulation</span>
-              {{ else }}<span class="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">{{ .OISignal }}</span>{{ end }}
+              {{ if eq .OISignal "new_longs" }}<span title="new_longs: 价↑+持仓↑，新多入场，趋势强" class="px-2 py-0.5 bg-green-100 text-green-800 rounded text-xs">新多入场</span>
+              {{ else if eq .OISignal "new_shorts" }}<span title="new_shorts: 价↓+持仓↑，新空入场，趋势强" class="px-2 py-0.5 bg-red-100 text-red-800 rounded text-xs">新空入场</span>
+              {{ else if eq .OISignal "short_squeeze" }}<span title="short_squeeze: 价↑+持仓↓，空头被迫平仓推涨，多头脆弱" class="px-2 py-0.5 bg-amber-100 text-amber-800 rounded text-xs">空头挤仓</span>
+              {{ else if eq .OISignal "capitulation" }}<span title="capitulation: 价↓+持仓↓，多头集体认输离场" class="px-2 py-0.5 bg-purple-100 text-purple-800 rounded text-xs">多头投降</span>
+              {{ else }}<span title="neutral: |持仓 24h| &lt; 3% 或 |价格 24h| ≤ 0.5%，无明显方向" class="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">无明显方向</span>{{ end }}
             </td>
             <td class="px-3 py-2 text-right font-mono text-xs">{{ .Price24hPct }}%</td>
             <td class="px-3 py-2 text-right font-mono">{{ .TopLSRatio }}</td>
             <td class="px-3 py-2">
-              {{ if eq .LSLabel "strongly_bullish" }}<span class="px-2 py-0.5 bg-green-100 text-green-800 rounded text-xs font-semibold">strongly_bullish</span>
-              {{ else if eq .LSLabel "bullish" }}<span class="px-2 py-0.5 bg-green-50 text-green-700 rounded text-xs">bullish</span>
-              {{ else if eq .LSLabel "balanced" }}<span class="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">balanced</span>
-              {{ else if eq .LSLabel "bearish" }}<span class="px-2 py-0.5 bg-red-50 text-red-700 rounded text-xs">bearish</span>
-              {{ else if eq .LSLabel "strongly_bearish" }}<span class="px-2 py-0.5 bg-red-100 text-red-800 rounded text-xs font-semibold">strongly_bearish</span>
+              {{ if eq .LSLabel "strongly_bullish" }}<span title="strongly_bullish: 大户多空比 &gt; 2.0" class="px-2 py-0.5 bg-green-100 text-green-800 rounded text-xs font-semibold">大户强多</span>
+              {{ else if eq .LSLabel "bullish" }}<span title="bullish: 大户多空比 1.3~2.0" class="px-2 py-0.5 bg-green-50 text-green-700 rounded text-xs">大户偏多</span>
+              {{ else if eq .LSLabel "balanced" }}<span title="balanced: 大户多空比 0.7~1.3" class="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">多空均衡</span>
+              {{ else if eq .LSLabel "bearish" }}<span title="bearish: 大户多空比 0.5~0.7" class="px-2 py-0.5 bg-red-50 text-red-700 rounded text-xs">大户偏空</span>
+              {{ else if eq .LSLabel "strongly_bearish" }}<span title="strongly_bearish: 大户多空比 &lt; 0.5" class="px-2 py-0.5 bg-red-100 text-red-800 rounded text-xs font-semibold">大户强空</span>
               {{ else }}{{ .LSLabel }}{{ end }}
             </td>
           </tr>
