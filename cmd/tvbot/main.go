@@ -343,9 +343,9 @@ func main() {
 		r.Group(func(r chi.Router) {
 			r.Use(webmw.RequireUser(sess))
 
-			// Root → redirect to /strategies
+			// Root → 收益统计是默认首页（用户最关心盈亏）
 			r.Get("/", func(w http.ResponseWriter, req *http.Request) {
-				http.Redirect(w, req, "/strategies", http.StatusSeeOther)
+				http.Redirect(w, req, "/stats", http.StatusSeeOther)
 			})
 
 			// Strategies

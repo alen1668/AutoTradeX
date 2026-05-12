@@ -49,7 +49,8 @@ func (h *AuthHandler) PostLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.sess.Put(r.Context(), "username", username)
-	http.Redirect(w, r, "/strategies", http.StatusSeeOther)
+	// 登录后默认进收益首页 — 用户最关心盈亏，其次再看策略/持仓
+	http.Redirect(w, r, "/stats", http.StatusSeeOther)
 }
 
 func (h *AuthHandler) PostLogout(w http.ResponseWriter, r *http.Request) {
