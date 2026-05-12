@@ -71,6 +71,13 @@ BTC 当前在 24h 区间位置: {{.Input.Macro.Regime.PriceRangePos}}
 {{if .Input.HighVolWindows}}当前命中: {{.Input.HighVolWindows}} (信号在该时段需更谨慎)
 {{else}}非已知高波动时段
 {{end}}
+【近期反思 (人工钉选,按钉选时间倒序)】
+{{if .Input.PinnedPatterns -}}
+{{range .Input.PinnedPatterns -}}
+- {{.Title}}: {{.SuggestionForPrompt}}
+{{end -}}
+{{else}}(无)
+{{end}}
 请综合判断:
 1. 该策略+symbol 近期表现是否稳定?
 2. 当前总仓位是否过度集中或与本信号方向冲突?

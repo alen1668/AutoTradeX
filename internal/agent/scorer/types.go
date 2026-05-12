@@ -41,6 +41,7 @@ type ScoreInput struct {
 	Market          *MarketContext
 	HighVolWindows  []string                  // never fails (pure local function)
 	Macro           macrocontext.MacroContext // sub-fields nil → prompt renders "暂不可用"
+	PinnedPatterns []PinnedPattern // pinned critique patterns; empty → renders "(无)"
 }
 
 // HistoricalTrade summarizes one closed trade for the LLM. Fields chosen
@@ -108,4 +109,13 @@ type ScoreResult struct {
 // rather than string comparison to decide fail-open vs fail-closed.
 func (r ScoreResult) IsFailed() bool {
 	return r.Decision == "failed"
+}
+
+// PinnedPattern is one entry in ScoreInput.PinnedPatterns. Populated by
+// LLMScorer.Score immediately before rendering, from PinnedPatternsProvider.
+// The prompt template's "近期反思" section iterates this slice; empty
+// slice renders as "(无)".
+type PinnedPattern struct {
+	Title               string
+	SuggestionForPrompt string
 }

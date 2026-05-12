@@ -143,3 +143,17 @@ Prompt 末尾必须要求严格 JSON 输出（允许被 markdown fences 或 prea
 ```
 
 `score` 不在 [0,100] / `decision` 不是 approve|abandon / 缺字段 → 视为 LLM failure。
+
+## PinnedPatterns (since 2026-05-12)
+
+`ScoreInput.PinnedPatterns []PinnedPattern` — populated automatically by `LLMScorer.Score` immediately before each prompt rendering. Source: `agent_critique_patterns WHERE pinned=true ORDER BY pinned_at DESC LIMIT $maxPinned`.
+
+Per-field:
+- `Title` — pattern title from the critique LLM
+- `SuggestionForPrompt` — operator-actionable prompt-modifying suggestion
+
+Template rendering: each pattern appears as a `- Title: Suggestion` bullet under the 【近期反思】section. Empty slice renders as "(无)".
+
+Fail-open contract: any DB error reading pinned patterns logs warn and renders "(无)". The scorer NEVER blocks on this.
+
+Operator workflow: pinning happens at `/eval/critique/<id>` web page (POST `/eval/critique/patterns/{id}/pin`). To roll back all pinned suggestions, set them all unpinned — no code change required.

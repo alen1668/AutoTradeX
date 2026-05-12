@@ -221,8 +221,13 @@ func main() {
 			Msg("unknown LLM provider; agent scorer will fail-mode")
 		llmClient = scorer.NewAnthropicClient("", "")
 	}
-	scorerFactory := scorer.NewFactory(llmClient, agentEvalRepo, pool,
-		logger.With().Str("c", "agent_scorer").Logger())
+	critiqueRepo := store.NewCritiqueRepo(pool)
+	scorerFactory := scorer.NewFactory(
+		llmClient, agentEvalRepo, pool,
+		logger.With().Str("c", "agent_scorer").Logger(),
+		critiqueRepo,                 // PinnedPatternsProvider — store.CritiqueRepo has the right method
+		dbSettings.CritiqueMaxPinned, // empty/zero → fallback to 5 inside NewFactory
+	)
 	historyProv := history.New(historyRepo, pool).WithLogger(
 		logger.With().Str("c", "agent_history").Logger())
 	portfolioProv := portfolio.New(portfolioRepo{vp: posRepo, ph: historyRepo}, pool).WithLogger(
@@ -295,10 +300,8 @@ func main() {
 	evalHandler := admin.NewEvalHandler(renderer, pool).WithStatus(statusHandler).WithBroker(broker)
 	evalNewHandler := admin.NewEvalNewHandler(renderer, pool).WithStatus(statusHandler)
 	settingsHandler := admin.NewSettingsHandler(renderer, pool, settingsRepo, statusHandler)
-	// critiqueRepo and critiqueManualCh are declared here so critiqueHandler
-	// can be constructed before the router block. The worker is started later
-	// (after shutCtx is created) and references these same variables.
-	critiqueRepo := store.NewCritiqueRepo(pool)
+	// critiqueRepo is declared above (near scorerFactory) so the scorer can
+	// inject pinned critique patterns. critiqueManualCh triggers manual runs.
 	critiqueManualCh := make(chan struct{}, 4)
 	critiqueHandler := admin.NewCritiqueHandler(renderer, critiqueRepo, critiqueManualCh).WithStatus(statusHandler)
 	postmortemHandler := admin.NewPostmortemHandler(renderer, pool).WithStatus(statusHandler)

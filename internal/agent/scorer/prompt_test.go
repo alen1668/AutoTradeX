@@ -3,6 +3,7 @@ package scorer
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"text/template"
 	"time"
@@ -299,4 +300,53 @@ func TestRenderPrompt_PerpBTCOnly_NoPerpSelf(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, rendered, "BTCUSDT: funding=0.0500%")
 	assert.NotContains(t, rendered, "永续指标暂不可用")
+}
+
+// minimalScoreInput builds the smallest valid ScoreInput (non-nil Signal +
+// Strategy; everything else zero/nil). Used by PinnedPatterns tests.
+func minimalScoreInput() ScoreInput {
+	return ScoreInput{
+		Signal: &sigpkg.Signal{
+			StrategyID:    "test-strat",
+			Symbol:        "BTCUSDT",
+			Kind:          sigpkg.KindLong,
+			Price:         decimal.RequireFromString("50000"),
+			TVTimestampMs: 1714723504000,
+		},
+		Strategy: &strategy.Strategy{
+			Config: strategy.Config{ID: "test-strat", Symbol: "BTCUSDT"},
+		},
+	}
+}
+
+func TestRenderPrompt_PinnedPatterns_Rendered(t *testing.T) {
+	in := minimalScoreInput()
+	in.PinnedPatterns = []PinnedPattern{
+		{Title: "trend 高估做多", SuggestionForPrompt: "trend + funding>0.05 扣 15 分"},
+		{Title: "波动率极端区间慎入", SuggestionForPrompt: "vol_pctl>0.9 扣 10 分"},
+	}
+	text, _, err := RenderPrompt(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "trend + funding>0.05 扣 15 分") {
+		t.Fatal("first pinned pattern suggestion missing")
+	}
+	if !strings.Contains(text, "vol_pctl>0.9 扣 10 分") {
+		t.Fatal("second pinned pattern suggestion missing")
+	}
+	if !strings.Contains(text, "近期反思") {
+		t.Fatal("section header missing")
+	}
+}
+
+func TestRenderPrompt_PinnedPatterns_EmptyRendersNone(t *testing.T) {
+	in := minimalScoreInput()
+	text, _, err := RenderPrompt(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "近期反思") || !strings.Contains(text, "(无)") {
+		t.Fatal("empty pinned should render '近期反思' section with '(无)'")
+	}
 }

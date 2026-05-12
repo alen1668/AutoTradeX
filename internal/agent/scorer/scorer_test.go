@@ -176,7 +176,7 @@ func TestLLMScorer_HistoryJSONInEval(t *testing.T) {
 }
 
 func TestFactory_WithSignalBindsParams(t *testing.T) {
-	f := NewFactory(&fakeLLM{}, &fakeEvalRepo{}, nil, discardLog())
+	f := NewFactory(&fakeLLM{}, &fakeEvalRepo{}, nil, discardLog(), nil, 0)
 	sc := f.WithSignal(99, "claude-test", 1234)
 	assert.Equal(t, int64(99), sc.signalID)
 	assert.Equal(t, "claude-test", sc.model)

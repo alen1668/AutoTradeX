@@ -19,22 +19,39 @@ type EvalRepo interface {
 	Insert(ctx context.Context, q store.Querier, e store.AgentEvaluation) error
 }
 
+// PinnedPatternsProvider is the read-side dependency the scorer queries
+// during prompt rendering. store.CritiqueRepo satisfies it via its
+// PinnedPatterns method. A nil provider is OK — the prompt renders "(无)".
+type PinnedPatternsProvider interface {
+	PinnedPatterns(ctx context.Context, limit int) ([]store.CritiquePatternRow, error)
+}
+
 // Factory bundles the long-lived dependencies of LLMScorer (LLM client,
 // eval repo, pool, log, health tracker). cmd/tvbot/main.go constructs
 // one Factory at boot; the ingest hook calls WithSignal per signal to
 // produce a one-shot Scorer instance bound to that signal_id.
 type Factory struct {
-	client LLMClient
-	repo   EvalRepo
-	pool   *pgxpool.Pool
-	log    zerolog.Logger
-	health *HealthTracker
+	client    LLMClient
+	repo      EvalRepo
+	pool      *pgxpool.Pool
+	log       zerolog.Logger
+	health    *HealthTracker
+	pinned    PinnedPatternsProvider
+	maxPinned int
 }
 
-func NewFactory(client LLMClient, repo EvalRepo, pool *pgxpool.Pool, log zerolog.Logger) *Factory {
+// NewFactory constructs a Factory. The pinned provider is optional (pass
+// nil to disable injection). maxPinned ≤ 0 falls back to 5.
+func NewFactory(client LLMClient, repo EvalRepo, pool *pgxpool.Pool, log zerolog.Logger,
+	pinned PinnedPatternsProvider, maxPinned int) *Factory {
+	if maxPinned <= 0 {
+		maxPinned = 5
+	}
 	return &Factory{
 		client: client, repo: repo, pool: pool, log: log,
-		health: NewHealthTracker(10 * time.Minute),
+		health:    NewHealthTracker(10 * time.Minute),
+		pinned:    pinned,
+		maxPinned: maxPinned,
 	}
 }
 
@@ -51,6 +68,8 @@ func (f *Factory) WithSignal(signalID int64, model string, timeoutMs int) *LLMSc
 		model:     model,
 		timeoutMs: timeoutMs,
 		signalID:  signalID,
+		pinned:    f.pinned,
+		maxPinned: f.maxPinned,
 	}
 }
 
@@ -68,6 +87,8 @@ type LLMScorer struct {
 	model     string
 	timeoutMs int
 	signalID  int64
+	pinned    PinnedPatternsProvider
+	maxPinned int
 }
 
 // llmJSON is the shape we ask the LLM to return. Pointer fields so we
@@ -79,6 +100,7 @@ type llmJSON struct {
 }
 
 func (s *LLMScorer) Score(ctx context.Context, in ScoreInput) (ScoreResult, error) {
+	in.PinnedPatterns = s.fetchPinned(ctx)
 	promptText, hash, err := RenderPrompt(in)
 	if err != nil {
 		return s.failed(in, "", "", "render prompt: "+err.Error(), 0, nil), nil
@@ -209,6 +231,26 @@ func stringDeref(p *string) string {
 		return ""
 	}
 	return *p
+}
+
+// fetchPinned reads up to maxPinned pinned patterns. ANY error (DB
+// unreachable / nil provider) yields an empty slice — the template
+// renders "(无)" and scoring proceeds. This is the fail-open contract
+// for the critique reflection feature.
+func (s *LLMScorer) fetchPinned(ctx context.Context) []PinnedPattern {
+	if s.pinned == nil {
+		return nil
+	}
+	rows, err := s.pinned.PinnedPatterns(ctx, s.maxPinned)
+	if err != nil {
+		s.log.Warn().Err(err).Msg("scorer: pinned patterns query failed; rendering as '(无)'")
+		return nil
+	}
+	out := make([]PinnedPattern, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, PinnedPattern{Title: r.Title, SuggestionForPrompt: r.Suggestion})
+	}
+	return out
 }
 
 // ExtractJSON pulls the first {...} JSON object out of an LLM response.
