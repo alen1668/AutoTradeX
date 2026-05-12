@@ -263,9 +263,22 @@
         </div>
       </div>
     </div>
+    <div class="border rounded p-3 md:col-span-2 mt-4">
+      <h3 class="font-medium mb-2">Perp Metrics worker — 永续合约指标</h3>
+      <label class="flex items-center mb-2">
+        <input type="checkbox" name="perp_metrics_enabled" {{ if .Settings.PerpMetricsEnabled }}checked{{ end }} class="mr-2">
+        <span class="text-sm">启用（每 5min 抓 funding rate / open interest / top L/S ratio 入库）</span>
+      </label>
+      <label class="block text-sm font-medium mt-2">scorer 接受的最大数据陈旧度（分钟）</label>
+      <input type="number" name="perp_metrics_lookback_minutes" value="{{ .Settings.PerpMetricsLookbackMinutes }}" min="5" max="120" class="mt-1 w-full md:w-48 rounded border border-gray-300 px-3 py-2">
+      <p class="text-xs text-gray-500 mt-1">
+        超过此分钟数的快照视为不可用，scorer prompt 写"永续指标暂不可用"。worker 周期固定 5min。
+        数据落库：<code>perp_metrics</code>。覆盖 symbol = 所有 enabled strategy 的 symbol ∪ BTCUSDT。
+      </p>
+    </div>
     <p class="text-xs text-gray-500">
       worker 修改 enabled 标记后下一个 tick 生效；间隔修改在下一次 tick 后生效。
-      数据落库：<code>market_regime</code> / <code>economic_events</code> / <code>news_snapshots</code>。
+      数据落库：<code>market_regime</code> / <code>economic_events</code> / <code>news_snapshots</code> / <code>perp_metrics</code>。
     </p>
     <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">保存宏观上下文配置</button>
   </form>

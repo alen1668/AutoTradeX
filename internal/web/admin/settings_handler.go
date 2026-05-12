@@ -348,5 +348,20 @@ func (h *SettingsHandler) SaveMacro(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// Perp metrics worker (separate UPDATE so older deployments without the
+	// 0012 migration can still post the macro form successfully — but with
+	// 0012 applied via the test fixture migrations list, this UPDATE always
+	// runs and validates).
+	perpEnabled := r.FormValue("perp_metrics_enabled") == "on"
+	perpLookback, err := strconv.Atoi(strings.TrimSpace(r.FormValue("perp_metrics_lookback_minutes")))
+	if err != nil || perpLookback < 5 || perpLookback > 120 {
+		http.Error(w, "perp_metrics_lookback_minutes must be 5..120", http.StatusBadRequest)
+		return
+	}
+	if err := h.repo.UpdatePerpMetrics(r.Context(), h.pool, perpEnabled, perpLookback); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	http.Redirect(w, r, "/settings?saved=1", http.StatusSeeOther)
 }
