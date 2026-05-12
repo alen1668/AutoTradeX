@@ -375,6 +375,7 @@ func main() {
 			r.Get("/eval/ab/{id}", evalHandler.ABCompare)
 			r.Get("/eval/news", evalHandler.NewsList)
 			r.Get("/eval/news/{id}", evalHandler.NewsDetail)
+			r.Get("/eval/perp", evalHandler.PerpList)
 
 			// Settings
 			r.Get("/settings", settingsHandler.Index)

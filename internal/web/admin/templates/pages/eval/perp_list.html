@@ -1,0 +1,146 @@
+{{ define "content" }}
+<div class="space-y-4">
+  <div class="flex items-center justify-between">
+    <div>
+      <a href="/eval" class="text-blue-600 hover:underline text-sm">← 返回灰度评估</a>
+      <h1 class="text-2xl font-bold mt-1 inline-flex items-center gap-2">
+        Perp metrics — 历史快照
+        <button type="button" onclick="document.getElementById('perp-help').classList.toggle('hidden')"
+                title="点击查看本页用途"
+                class="w-6 h-6 inline-flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-bold">?</button>
+      </h1>
+    </div>
+  </div>
+
+  <div id="perp-help" class="hidden bg-blue-50 border border-blue-200 rounded p-4 text-sm space-y-2">
+    <p class="font-semibold text-blue-900">📖 这个页面是干什么用的</p>
+    <p class="text-gray-700">
+      Perp metrics worker 每 5 分钟从 binance 拉永续合约的三组指标 ——
+      <strong>funding rate</strong>（拥挤方向）、<strong>open interest 24h 变化</strong>（资金进出 + 价格对照）、
+      <strong>top-trader long/short ratio</strong>（大户多空仓位比），按 symbol 入库。
+    </p>
+    <p class="text-gray-700">
+      这些指标会通过 macrocontext 注入 scorer 的 prompt 第 6 段（"永续指标"），
+      让 LLM 在打分时多看一层永续合约市场情绪。<strong>纯增量信息，不动 scorer 阈值，也不动硬风控。</strong>
+    </p>
+    <p class="text-gray-700"><strong>怎么读 derived labels</strong>：</p>
+    <ul class="list-disc list-inside ml-2 space-y-1 text-gray-700 text-xs">
+      <li><strong>funding</strong>：&gt;0.05% extreme_long / &gt;0.01% mild_long / ±0.01% neutral / &lt;-0.01% mild_short / &lt;-0.05% extreme_short</li>
+      <li><strong>OI signal</strong>：要求 |OI 24h| ≥ 3% 且 |price 24h| &gt; 0.5%。price↑+OI↑=new_longs（强趋势）/ price↑+OI↓=short_squeeze（空头补仓，多头脆）/ price↓+OI↑=new_shorts / price↓+OI↓=capitulation</li>
+      <li><strong>top L/S</strong>：&gt;2.0 strongly_bullish / &gt;1.3 bullish / 0.7~1.3 balanced / 0.5~0.7 bearish / &lt;0.5 strongly_bearish</li>
+    </ul>
+    <p class="text-gray-500 text-xs">
+      worker 抓取的 symbol 列表 = 当前所有 enabled strategy 的 symbol ∪ BTCUSDT。
+      数据库表 <code>perp_metrics</code>；想直接 SQL 查也行。
+    </p>
+  </div>
+
+  {{ if not .HasRows }}
+    <div class="bg-yellow-50 border border-yellow-200 rounded p-4 text-sm">
+      <p class="font-semibold text-yellow-900">📭 暂无 perp metrics 记录</p>
+      <ol class="list-decimal list-inside mt-2 space-y-1 text-gray-700">
+        <li>到 <a href="/settings" class="text-blue-600 underline">/settings</a> 滚到底部"宏观上下文 → Perp Metrics worker"</li>
+        <li>勾选"启用"，保存配置</li>
+        <li>5 分钟内（worker 的下一个 tick）会出现第一条记录；想立即看可重启 bot</li>
+      </ol>
+    </div>
+  {{ else }}
+    <form method="GET" class="flex items-center gap-2 text-sm">
+      <label class="text-gray-700">按 symbol 筛选：</label>
+      <select name="symbol" onchange="this.form.submit()" class="rounded border border-gray-300 px-3 py-1.5">
+        <option value="">全部</option>
+        {{ range .Symbols }}
+          <option value="{{ . }}" {{ if eq . $.SelectedSymbol }}selected{{ end }}>{{ . }}</option>
+        {{ end }}
+      </select>
+      {{ if .SelectedSymbol }}<a href="/eval/perp" class="text-blue-600 hover:underline text-xs">清除</a>{{ end }}
+    </form>
+
+    <div class="bg-white shadow rounded overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50">
+          <tr class="text-left">
+            <th class="px-3 py-2">观测时间 <span class="text-xs text-gray-400 font-normal">(浏览器时区)</span></th>
+            <th class="px-3 py-2">Symbol</th>
+            <th class="px-3 py-2 text-right">Funding</th>
+            <th class="px-3 py-2">Funding label</th>
+            <th class="px-3 py-2 text-right">OI 24h %</th>
+            <th class="px-3 py-2">OI signal</th>
+            <th class="px-3 py-2 text-right">Price 24h %</th>
+            <th class="px-3 py-2 text-right">Top L/S</th>
+            <th class="px-3 py-2">L/S label</th>
+          </tr>
+        </thead>
+        <tbody>
+        {{ range .Rows }}
+          <tr class="border-t hover:bg-gray-50">
+            <td class="px-3 py-2 ts-local font-mono text-xs" data-ts="{{ .ObservedAtUnix }}">{{ .ObservedAtUnix }}</td>
+            <td class="px-3 py-2 font-mono font-semibold">{{ .Symbol }}</td>
+            <td class="px-3 py-2 text-right font-mono">{{ .FundingRatePct }}%</td>
+            <td class="px-3 py-2">
+              {{ if eq .FundingLabel "extreme_long" }}<span class="px-2 py-0.5 bg-red-100 text-red-800 rounded text-xs font-semibold">extreme_long</span>
+              {{ else if eq .FundingLabel "mild_long" }}<span class="px-2 py-0.5 bg-orange-50 text-orange-700 rounded text-xs">mild_long</span>
+              {{ else if eq .FundingLabel "neutral" }}<span class="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">neutral</span>
+              {{ else if eq .FundingLabel "mild_short" }}<span class="px-2 py-0.5 bg-sky-50 text-sky-700 rounded text-xs">mild_short</span>
+              {{ else if eq .FundingLabel "extreme_short" }}<span class="px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs font-semibold">extreme_short</span>
+              {{ else }}{{ .FundingLabel }}{{ end }}
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs">{{ .OpenInterest24hPct }}%</td>
+            <td class="px-3 py-2">
+              {{ if eq .OISignal "new_longs" }}<span class="px-2 py-0.5 bg-green-100 text-green-800 rounded text-xs">new_longs</span>
+              {{ else if eq .OISignal "new_shorts" }}<span class="px-2 py-0.5 bg-red-100 text-red-800 rounded text-xs">new_shorts</span>
+              {{ else if eq .OISignal "short_squeeze" }}<span class="px-2 py-0.5 bg-amber-100 text-amber-800 rounded text-xs">short_squeeze</span>
+              {{ else if eq .OISignal "capitulation" }}<span class="px-2 py-0.5 bg-purple-100 text-purple-800 rounded text-xs">capitulation</span>
+              {{ else }}<span class="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">{{ .OISignal }}</span>{{ end }}
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs">{{ .Price24hPct }}%</td>
+            <td class="px-3 py-2 text-right font-mono">{{ .TopLSRatio }}</td>
+            <td class="px-3 py-2">
+              {{ if eq .LSLabel "strongly_bullish" }}<span class="px-2 py-0.5 bg-green-100 text-green-800 rounded text-xs font-semibold">strongly_bullish</span>
+              {{ else if eq .LSLabel "bullish" }}<span class="px-2 py-0.5 bg-green-50 text-green-700 rounded text-xs">bullish</span>
+              {{ else if eq .LSLabel "balanced" }}<span class="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">balanced</span>
+              {{ else if eq .LSLabel "bearish" }}<span class="px-2 py-0.5 bg-red-50 text-red-700 rounded text-xs">bearish</span>
+              {{ else if eq .LSLabel "strongly_bearish" }}<span class="px-2 py-0.5 bg-red-100 text-red-800 rounded text-xs font-semibold">strongly_bearish</span>
+              {{ else }}{{ .LSLabel }}{{ end }}
+            </td>
+          </tr>
+        {{ end }}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="flex items-center justify-center mt-4 space-x-1 text-sm">
+      {{ $sym := .SelectedSymbol }}
+      {{ $symQ := "" }}{{ if $sym }}{{ $symQ = printf "&symbol=%s" $sym }}{{ end }}
+      {{ if .HasPrev }}
+        <a href="?page=1{{ $symQ }}" class="px-3 py-1 rounded border bg-white hover:bg-gray-100">« 首页</a>
+        <a href="?page={{ sub .Page 1 }}{{ $symQ }}" class="px-3 py-1 rounded border bg-white hover:bg-gray-100">上一页</a>
+      {{ else }}
+        <span class="px-3 py-1 rounded border bg-gray-50 text-gray-400">« 首页</span>
+        <span class="px-3 py-1 rounded border bg-gray-50 text-gray-400">上一页</span>
+      {{ end }}
+      <span class="px-3 py-1 rounded bg-blue-600 text-white">{{ .Page }} / {{ .TotalPages }}</span>
+      {{ if .HasNext }}
+        <a href="?page={{ add .Page 1 }}{{ $symQ }}" class="px-3 py-1 rounded border bg-white hover:bg-gray-100">下一页</a>
+        <a href="?page={{ .TotalPages }}{{ $symQ }}" class="px-3 py-1 rounded border bg-white hover:bg-gray-100">末页 »</a>
+      {{ else }}
+        <span class="px-3 py-1 rounded border bg-gray-50 text-gray-400">下一页</span>
+        <span class="px-3 py-1 rounded border bg-gray-50 text-gray-400">末页 »</span>
+      {{ end }}
+    </div>
+    <p class="text-center text-xs text-gray-500">共 {{ .Total }} 条 · 每页 30 条</p>
+  {{ end }}
+</div>
+
+<script>
+  (function() {
+    const pad = n => String(n).padStart(2, '0');
+    document.querySelectorAll('[data-ts]').forEach(el => {
+      const ts = parseInt(el.dataset.ts, 10);
+      if (!ts) return;
+      const d = new Date(ts * 1000);
+      el.textContent = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    });
+  })();
+</script>
+{{ end }}

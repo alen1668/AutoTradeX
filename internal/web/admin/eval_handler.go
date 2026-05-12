@@ -10,10 +10,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/shopspring/decimal"
 
 	"github.com/lizhaojie/tvbot/internal/eval"
 	"github.com/lizhaojie/tvbot/internal/store"
 )
+
+func decimalHundred() decimal.Decimal { return decimal.NewFromInt(100) }
 
 // EvalHandler renders /eval/* pages. All pages are read-only in Phase 1.
 type EvalHandler struct {
@@ -21,6 +24,7 @@ type EvalHandler struct {
 	pool     *pgxpool.Pool
 	store    *eval.Store
 	newsRepo *store.NewsSnapshotsRepo
+	perpRepo *store.PerpMetricsRepo
 	broker   *eval.Broker
 	statusH  *StatusHandler
 }
@@ -28,11 +32,13 @@ type EvalHandler struct {
 func NewEvalHandler(r *Renderer, pool *pgxpool.Pool) *EvalHandler {
 	var evalStore *eval.Store
 	var newsRepo *store.NewsSnapshotsRepo
+	var perpRepo *store.PerpMetricsRepo
 	if pool != nil {
 		evalStore = eval.NewStore(pool)
 		newsRepo = store.NewNewsSnapshotsRepo(pool)
+		perpRepo = store.NewPerpMetricsRepo(pool)
 	}
-	return &EvalHandler{render: r, pool: pool, store: evalStore, newsRepo: newsRepo}
+	return &EvalHandler{render: r, pool: pool, store: evalStore, newsRepo: newsRepo, perpRepo: perpRepo}
 }
 
 // WithStatus injects the global status handler so the layout can render the
@@ -544,6 +550,90 @@ func safeInt(p *int) int {
 // withTimeout shortens r.Context() to 5s; used by all eval queries.
 func withTimeout(r *http.Request) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(r.Context(), 5*time.Second)
+}
+
+// perpListRow is the per-row DTO for the /eval/perp list page.
+type perpListRow struct {
+	ID                 int64
+	Symbol             string
+	ObservedAtUnix     int64
+	FundingRatePct     string // 0.0250
+	FundingLabel       string
+	OpenInterest24hPct string // +3.20
+	OISignal           string
+	Price24hPct        string
+	TopLSRatio         string
+	LSLabel            string
+}
+
+const perpPageSize = 30
+
+// PerpList handles GET /eval/perp. Lists perp_metrics rows newest-first with
+// page-based paging and optional ?symbol=XXX filter.
+func (h *EvalHandler) PerpList(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := withTimeout(r)
+	defer cancel()
+
+	page := 1
+	if p := r.URL.Query().Get("page"); p != "" {
+		_, _ = fmt.Sscanf(p, "%d", &page)
+	}
+	if page < 1 {
+		page = 1
+	}
+	symbol := r.URL.Query().Get("symbol")
+
+	var rows []perpListRow
+	total := 0
+	var symbols []string
+	if h.perpRepo != nil {
+		var err error
+		total, err = h.perpRepo.CountAll(ctx, h.pool, symbol)
+		if err != nil {
+			http.Error(w, "count: "+err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		offset := (page - 1) * perpPageSize
+		recs, err := h.perpRepo.ListPage(ctx, h.pool, symbol, perpPageSize, offset)
+		if err != nil {
+			http.Error(w, "list: "+err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		for _, rec := range recs {
+			rows = append(rows, perpListRow{
+				ID:                 rec.ID,
+				Symbol:             rec.Symbol,
+				ObservedAtUnix:     rec.ObservedAt.Unix(),
+				FundingRatePct:     rec.FundingRate.Mul(decimalHundred()).StringFixed(4),
+				FundingLabel:       rec.FundingLabel,
+				OpenInterest24hPct: rec.OpenInterest24hPct.StringFixed(2),
+				OISignal:           rec.OISignal,
+				Price24hPct:        rec.Price24hPct.StringFixed(2),
+				TopLSRatio:         rec.TopLSRatio.StringFixed(2),
+				LSLabel:            rec.LSLabel,
+			})
+		}
+		symbols, _ = h.perpRepo.DistinctSymbols(ctx, h.pool)
+	}
+	totalPages := (total + perpPageSize - 1) / perpPageSize
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	data := map[string]any{
+		"Rows":           rows,
+		"HasRows":        len(rows) > 0,
+		"Page":           page,
+		"TotalPages":     totalPages,
+		"Total":          total,
+		"HasPrev":        page > 1,
+		"HasNext":        page < totalPages,
+		"Symbols":        symbols,
+		"SelectedSymbol": symbol,
+	}
+	if h.statusH != nil {
+		data = h.statusH.WithStatus(r, data)
+	}
+	h.render.Render(w, http.StatusOK, "eval/perp_list", data)
 }
 
 // parseInt64ID parses chi URL param "id" as int64. Returns 0 on failure.
