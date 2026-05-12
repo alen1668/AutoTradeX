@@ -16,6 +16,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/lizhaojie/tvbot/internal/agent/calendar"
+	"github.com/lizhaojie/tvbot/internal/agent/critique"
 	"github.com/lizhaojie/tvbot/internal/agent/history"
 	"github.com/lizhaojie/tvbot/internal/agent/macrocontext"
 	"github.com/lizhaojie/tvbot/internal/agent/market"
@@ -497,6 +498,49 @@ func main() {
 		go outcomeWorker.Start(shutCtx)
 		logger.Info().Msg("outcome worker started")
 	}
+
+	// ── critique self-reflection worker ────────────────────────────────────
+	// Cron-driven LLM agent that reflects on agent_evaluations + their
+	// outcome labels and proposes structured "误判模式" patterns. Patterns
+	// can be pinned by operators (web /eval/critique) to inject into
+	// scorer prompt. critiqueManualCh is forwarded to the web handler in a
+	// later wireup pass so the "立即重算" button can trigger ad-hoc runs.
+	critiqueRepo := store.NewCritiqueRepo(pool)
+	critiqueManualCh := make(chan struct{}, 4)
+	{
+		critiqueSettings := critique.NewSettingsAdapter(settingsRepo, pool)
+		s, err := critiqueSettings.Read(shutCtx)
+		if err != nil {
+			logger.Warn().Err(err).Msg("critique: settings read failed, using defaults")
+		}
+		// Resolve model: empty critique_model falls back to scorer model.
+		model := s.Model
+		if model == "" {
+			model = dbSettings.AgentScorerModel
+		}
+		critiqueAgent := critique.NewAgent(
+			llmClient,
+			critique.NewPGDataReader(pool),
+			critique.NewPGStore(critiqueRepo),
+			critique.Config{
+				Model:       model,
+				WindowDays:  s.WindowDays,
+				MinSample:   s.MinSample,
+				MaxPinned:   s.MaxPinned,
+				TimeoutMs:   60_000,
+				DetailLimit: 200,
+			},
+			ptrLogger(logger.With().Str("c", "critique").Logger()),
+		)
+		critiqueWorker := critique.NewWorker(
+			critiqueAgent,
+			critiqueSettings,
+			logger.With().Str("c", "critique-worker").Logger(),
+		)
+		go critiqueWorker.Start(shutCtx, critiqueManualCh)
+		logger.Info().Bool("enabled", s.Enabled).Msg("critique worker started")
+	}
+	_ = critiqueManualCh // kept for /eval/critique/run handler wired in T19
 
 	// ── Phase 2 replay worker ────────────────────────────────────────────────
 	// Polls replay_runs WHERE status='pending' every 1s. Web form is the only
