@@ -19,11 +19,20 @@ type Config struct {
 	MaxPinned   int
 	TimeoutMs   int
 	DetailLimit int // default 200
+	// AutoPinConfidence: off | high | medium | low | all. After a successful
+	// LLM call, Agent.Run asks Store to pin all patterns whose confidence
+	// matches. "off" preserves the original "human in loop" model.
+	AutoPinConfidence string
 }
 
 // Store is the persistence side. Implemented by pg_store.go via CritiqueRepo.
 type Store interface {
 	Insert(ctx context.Context, c Critique, patterns []Pattern) (int64, error)
+	// AutoPin marks pinned=true (pinned_by='auto') on patterns of the given
+	// critique whose confidence matches the filter. confidence "all" matches
+	// any. "off" should be filtered at the caller — implementations may
+	// treat "off" as a no-op for safety.
+	AutoPin(ctx context.Context, critiqueID int64, confidence string) error
 }
 
 // Agent runs the LLM-based critique reflection. One Agent is constructed
@@ -129,8 +138,22 @@ func (a *Agent) Run(ctx context.Context) error {
 	patternsJSON, _ := json.Marshal(parsed)
 	c.PatternsJSON = patternsJSON
 
-	if _, err := a.store.Insert(ctx, c, parsed.Patterns); err != nil {
+	newID, err := a.store.Insert(ctx, c, parsed.Patterns)
+	if err != nil {
 		a.log.Warn().Err(err).Msg("critique: insert failed (logged, not retried this cycle)")
+		return nil
+	}
+	// Auto-pin per Config. "off" / unset disables — preserves original
+	// "human in loop" model. Failure is non-fatal — operator can still
+	// pin manually via /eval/critique.
+	if conf := a.cfg.AutoPinConfidence; conf != "" && conf != "off" {
+		if err := a.store.AutoPin(ctx, newID, conf); err != nil {
+			a.log.Warn().Err(err).Str("confidence", conf).Int64("critique_id", newID).
+				Msg("critique: auto-pin failed (logged, operator can pin manually)")
+		} else {
+			a.log.Info().Str("confidence", conf).Int64("critique_id", newID).
+				Msg("critique: auto-pinned patterns")
+		}
 	}
 	return nil
 }

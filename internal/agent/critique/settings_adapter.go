@@ -15,12 +15,13 @@ type SettingsRepoLike interface {
 
 // Settings is the worker-level projection of store.Settings critique fields.
 type Settings struct {
-	Enabled    bool
-	Model      string // empty → caller resolves fallback (e.g. scorer model)
-	WindowDays int
-	MinSample  int
-	MaxPinned  int
-	CronUTC    string
+	Enabled           bool
+	Model             string // empty → caller resolves fallback (e.g. scorer model)
+	WindowDays        int
+	MinSample         int
+	MaxPinned         int
+	CronUTC           string
+	AutoPinConfidence string // off | high | medium | low | all
 }
 
 type SettingsAdapter struct {
@@ -38,11 +39,12 @@ func (a *SettingsAdapter) Read(ctx context.Context) (Settings, error) {
 		return Settings{}, err
 	}
 	return Settings{
-		Enabled:    s.CritiqueEnabled,
-		Model:      s.CritiqueModel,
-		WindowDays: s.CritiqueWindowDays,
-		MinSample:  s.CritiqueMinSample,
-		MaxPinned:  s.CritiqueMaxPinned,
-		CronUTC:    s.CritiqueCronUTC,
+		Enabled:           s.CritiqueEnabled,
+		Model:             s.CritiqueModel,
+		WindowDays:        s.CritiqueWindowDays,
+		MinSample:         s.CritiqueMinSample,
+		MaxPinned:         s.CritiqueMaxPinned,
+		CronUTC:           s.CritiqueCronUTC,
+		AutoPinConfidence: s.CritiqueAutoPinConfidence,
 	}, nil
 }

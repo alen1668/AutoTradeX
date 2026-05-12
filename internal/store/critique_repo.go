@@ -167,8 +167,27 @@ func scanPatternRows(rows interface {
 	return out, rows.Err()
 }
 
+// PinByConfidence sets pinned=TRUE on every pattern of `critiqueID`
+// whose confidence matches. `confidence` "all" matches any. Only rows
+// currently pinned=FALSE are touched so re-runs are idempotent.
+func (r *CritiqueRepo) PinByConfidence(ctx context.Context, critiqueID int64, confidence, pinnedBy string) error {
+	if confidence == "all" {
+		_, err := r.pool.Exec(ctx, `
+UPDATE agent_critique_patterns
+SET pinned = TRUE, pinned_at = now(), pinned_by = $2
+WHERE critique_id = $1 AND pinned = FALSE`, critiqueID, pinnedBy)
+		return err
+	}
+	_, err := r.pool.Exec(ctx, `
+UPDATE agent_critique_patterns
+SET pinned = TRUE, pinned_at = now(), pinned_by = $3
+WHERE critique_id = $1 AND confidence = $2 AND pinned = FALSE`, critiqueID, confidence, pinnedBy)
+	return err
+}
+
 // SetPinned toggles pinned flag on a single pattern row.
-// `pinnedBy` is the actor tag (e.g. "manual" for ops, future: "auto").
+// `pinnedBy` is the actor tag (e.g. "manual" for ops, "auto" for the
+// LLM-driven auto-pin path).
 func (r *CritiqueRepo) SetPinned(ctx context.Context, patternID int64, pinned bool, pinnedBy string) error {
 	if pinned {
 		_, err := r.pool.Exec(ctx, `

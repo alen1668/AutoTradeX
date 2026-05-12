@@ -64,6 +64,10 @@ type Settings struct {
 	CritiqueMinSample  int
 	CritiqueMaxPinned  int
 	CritiqueCronUTC    string
+	// critique_auto_pin_confidence: off | high | medium | low | all
+	// Controls which patterns critique.Agent auto-pins right after the
+	// LLM writes them. "off" preserves the original "human in loop" model.
+	CritiqueAutoPinConfidence string
 }
 
 type SettingsRepo struct {
@@ -101,7 +105,8 @@ SELECT max_total_leverage, max_daily_loss_usdc,
        outcome_horizon_min, outcome_win_threshold_pct, outcome_loss_threshold_pct,
        outcome_batch_size, outcome_scan_interval_min, outcome_stale_cutoff_h,
        critique_enabled, critique_model, critique_window_days,
-       critique_min_sample, critique_max_pinned, critique_cron_utc
+       critique_min_sample, critique_max_pinned, critique_cron_utc,
+       critique_auto_pin_confidence
   FROM system_state WHERE id=1`,
 	).Scan(&maxLev, &maxLoss, &feishuURL, &s.FeishuEnabled, &tgToken, &tgChat, &s.TelegramEnabled,
 		&bnKey, &bnSecret,
@@ -123,6 +128,7 @@ SELECT max_total_leverage, max_daily_loss_usdc,
 		&s.OutcomeBatchSize, &s.OutcomeScanIntervalMin, &s.OutcomeStaleCutoffH,
 		&s.CritiqueEnabled, &s.CritiqueModel, &s.CritiqueWindowDays,
 		&s.CritiqueMinSample, &s.CritiqueMaxPinned, &s.CritiqueCronUTC,
+		&s.CritiqueAutoPinConfidence,
 	)
 	if err != nil {
 		return nil, err
@@ -414,21 +420,22 @@ WHERE id=1`, horizonMin, winThresh, lossThresh, batchSize, scanIntervalMin, stal
 	return err
 }
 
-// UpdateCritique stores the 6 critique-agent knobs in one shot.
+// UpdateCritique stores all critique-agent knobs in one shot.
 func (r *SettingsRepo) UpdateCritique(ctx context.Context, q Querier,
 	enabled bool, model string,
 	windowDays, minSample, maxPinned int,
-	cronUTC string,
+	cronUTC, autoPinConfidence string,
 ) error {
 	_, err := q.Exec(ctx, `
 UPDATE system_state
-SET critique_enabled     = $1,
-    critique_model       = $2,
-    critique_window_days = $3,
-    critique_min_sample  = $4,
-    critique_max_pinned  = $5,
-    critique_cron_utc    = $6,
-    updated_at           = now()
-WHERE id=1`, enabled, model, windowDays, minSample, maxPinned, cronUTC)
+SET critique_enabled              = $1,
+    critique_model                = $2,
+    critique_window_days          = $3,
+    critique_min_sample           = $4,
+    critique_max_pinned           = $5,
+    critique_cron_utc             = $6,
+    critique_auto_pin_confidence  = $7,
+    updated_at                    = now()
+WHERE id=1`, enabled, model, windowDays, minSample, maxPinned, cronUTC, autoPinConfidence)
 	return err
 }

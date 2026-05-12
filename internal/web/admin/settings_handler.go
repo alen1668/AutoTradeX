@@ -425,9 +425,20 @@ func (h *SettingsHandler) SaveMacro(w http.ResponseWriter, r *http.Request) {
 	if critiqueCron == "" {
 		critiqueCron = "0 4 * * *"
 	}
+	critiqueAutoPin := strings.TrimSpace(r.FormValue("critique_auto_pin_confidence"))
+	switch critiqueAutoPin {
+	case "off", "high", "medium", "low", "all":
+		// ok
+	case "":
+		critiqueAutoPin = "off"
+	default:
+		http.Error(w, "critique_auto_pin_confidence must be one of off|high|medium|low|all", http.StatusBadRequest)
+		return
+	}
 	if err := h.repo.UpdateCritique(r.Context(), h.pool,
 		critiqueEnabled, critiqueModel,
 		critiqueWindow, critiqueMinSample, critiqueMaxPinned, critiqueCron,
+		critiqueAutoPin,
 	); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

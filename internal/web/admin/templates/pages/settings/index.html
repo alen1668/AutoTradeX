@@ -352,6 +352,21 @@
           <input type="text" name="critique_cron_utc" value="{{ .Settings.CritiqueCronUTC }}" placeholder="0 4 * * *" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono">
           <p class="text-xs text-gray-500 mt-1">默认 <code>0 4 * * *</code>（每日 04:00 UTC）。</p>
         </div>
+        <div class="md:col-span-2">
+          <label class="block text-sm font-medium">自动钉选哪类置信度</label>
+          <select name="critique_auto_pin_confidence" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+            {{ $cur := .Settings.CritiqueAutoPinConfidence }}
+            <option value="off"    {{ if eq $cur "off"    }}selected{{ end }}>off — 不自动钉选（最保守，纯人工审核）</option>
+            <option value="high"   {{ if eq $cur "high"   }}selected{{ end }}>high — 仅自动钉「高置信」(默认推荐)</option>
+            <option value="medium" {{ if eq $cur "medium" }}selected{{ end }}>medium — 自动钉「高+中置信」</option>
+            <option value="low"    {{ if eq $cur "low"    }}selected{{ end }}>low — 仅钉「低置信」（罕用）</option>
+            <option value="all"    {{ if eq $cur "all"    }}selected{{ end }}>all — 全部自动钉</option>
+          </select>
+          <p class="text-xs text-gray-500 mt-1">
+            critique LLM 写入后立即按选项自动钉选对应置信度的 patterns（标记 <code>pinned_by=auto</code>）。
+            被钉选的会立即生效到下一次 scorer 评分。手动钉选/取消的优先级与自动一致；操作员可在 <a href="/eval/critique" class="text-blue-600 underline">/eval/critique</a> 随时调整。
+          </p>
+        </div>
       </div>
     </div>
 

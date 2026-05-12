@@ -36,14 +36,22 @@ func (f *fakeData) Details(context.Context, time.Time, time.Time, int) ([]Detail
 func (f *fakeData) PreviousSummary(context.Context) (string, error) { return f.prev, nil }
 
 type fakeStore struct {
-	inserted *Critique
-	patterns []Pattern
+	inserted        *Critique
+	patterns        []Pattern
+	autoPinCalls    int
+	autoPinConfArg  string
 }
 
 func (f *fakeStore) Insert(_ context.Context, c Critique, ps []Pattern) (int64, error) {
 	f.inserted = &c
 	f.patterns = ps
 	return 7, nil
+}
+
+func (f *fakeStore) AutoPin(_ context.Context, _ int64, confidence string) error {
+	f.autoPinCalls++
+	f.autoPinConfArg = confidence
+	return nil
 }
 
 func TestAgent_Run_HappyPath(t *testing.T) {
@@ -72,6 +80,48 @@ func TestAgent_Run_HappyPath(t *testing.T) {
 	}
 	if st.inserted.Summary == nil || *st.inserted.Summary == "" {
 		t.Fatalf("summary not propagated: %+v", st.inserted.Summary)
+	}
+	if st.autoPinCalls != 0 {
+		t.Fatalf("AutoPinConfidence not set on config → should not call AutoPin, got %d calls", st.autoPinCalls)
+	}
+}
+
+func TestAgent_Run_AutoPinsByConfig(t *testing.T) {
+	llm := &fakeLLM{text: `{"summary":"x","patterns":[
+		{"id":"p1","title":"t","evidence_signal_ids":[1,2,3],"stats":{},"suggestion_for_prompt":"s","confidence":"high"}
+	]}`}
+	data := &fakeData{dets: make([]DetailRow, 30)}
+	st := &fakeStore{}
+	a := NewAgent(llm, data, st, Config{
+		WindowDays: 7, MinSample: 20, TimeoutMs: 30000,
+		AutoPinConfidence: "high",
+	}, nil)
+	if err := a.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if st.autoPinCalls != 1 {
+		t.Fatalf("expected 1 AutoPin call, got %d", st.autoPinCalls)
+	}
+	if st.autoPinConfArg != "high" {
+		t.Fatalf("expected 'high' arg, got %q", st.autoPinConfArg)
+	}
+}
+
+func TestAgent_Run_AutoPinSkippedWhenOff(t *testing.T) {
+	llm := &fakeLLM{text: `{"summary":"x","patterns":[
+		{"id":"p1","title":"t","evidence_signal_ids":[1,2,3],"stats":{},"suggestion_for_prompt":"s","confidence":"high"}
+	]}`}
+	data := &fakeData{dets: make([]DetailRow, 30)}
+	st := &fakeStore{}
+	a := NewAgent(llm, data, st, Config{
+		WindowDays: 7, MinSample: 20, TimeoutMs: 30000,
+		AutoPinConfidence: "off",
+	}, nil)
+	if err := a.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if st.autoPinCalls != 0 {
+		t.Fatalf("AutoPinConfidence=off → should not call AutoPin, got %d", st.autoPinCalls)
 	}
 }
 

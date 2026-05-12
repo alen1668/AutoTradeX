@@ -57,3 +57,13 @@ func (s *PGStore) Insert(ctx context.Context, c Critique, patterns []Pattern) (i
 
 	return s.repo.InsertWithPatterns(ctx, row, prows)
 }
+
+// AutoPin pins all patterns of `critiqueID` whose confidence matches the
+// filter (or all when confidence == "all"). pinned_by is set to "auto"
+// so the operator can distinguish in the UI.
+func (s *PGStore) AutoPin(ctx context.Context, critiqueID int64, confidence string) error {
+	if confidence == "" || confidence == "off" {
+		return nil
+	}
+	return s.repo.PinByConfidence(ctx, critiqueID, confidence, "auto")
+}
