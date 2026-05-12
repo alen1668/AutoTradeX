@@ -214,7 +214,89 @@ func TestRenderPrompt_MacroAllNil_RendersUnavailable(t *testing.T) {
 		"BTC regime 数据暂不可用",
 		"最近 ±1h 无高重要性宏观事件",
 		"新闻数据暂不可用",
+		"永续指标暂不可用",
 	} {
 		assert.Contains(t, rendered, want, "fallback line missing")
 	}
+}
+
+func TestRenderPrompt_PerpSelfAndBTC(t *testing.T) {
+	in := fixedInput()
+	in.Macro.PerpSelf = &macrocontext.PerpSnapshot{
+		Symbol:             "ETHUSDC",
+		FundingRatePct:     decimal.NewFromFloat(0.025),
+		FundingLabel:       "mild_long",
+		OpenInterest24hPct: decimal.NewFromFloat(3.2),
+		OISignal:           "new_longs",
+		TopLSRatio:         decimal.NewFromFloat(1.85),
+		LSLabel:            "bullish",
+		StaleMinutes:       3,
+	}
+	in.Macro.PerpBTC = &macrocontext.PerpSnapshot{
+		Symbol:             "BTCUSDT",
+		FundingRatePct:     decimal.NewFromFloat(0.01),
+		FundingLabel:       "neutral",
+		OpenInterest24hPct: decimal.NewFromFloat(1.0),
+		OISignal:           "neutral",
+		TopLSRatio:         decimal.NewFromFloat(1.1),
+		LSLabel:            "balanced",
+		StaleMinutes:       3,
+	}
+	rendered, _, err := RenderPrompt(in)
+	require.NoError(t, err)
+	assert.Contains(t, rendered, "ETHUSDC: funding=0.0250%")
+	assert.Contains(t, rendered, "[mild_long]")
+	assert.Contains(t, rendered, "[new_longs]")
+	assert.Contains(t, rendered, "BTCUSDT: funding=0.0100%")
+	assert.Contains(t, rendered, "[neutral]")
+	// stale = 3min, < 5min threshold, so no "数据 X 分钟前" suffix
+	assert.NotContains(t, rendered, "(数据 3 分钟前)")
+}
+
+func TestRenderPrompt_PerpSelfStale_AppendsAgeSuffix(t *testing.T) {
+	in := fixedInput()
+	in.Macro.PerpSelf = &macrocontext.PerpSnapshot{
+		Symbol: "ETHUSDC", FundingRatePct: decimal.NewFromFloat(0.025),
+		FundingLabel: "mild_long", OISignal: "neutral", LSLabel: "balanced",
+		TopLSRatio: decimal.NewFromFloat(1.0), StaleMinutes: 18,
+	}
+	rendered, _, err := RenderPrompt(in)
+	require.NoError(t, err)
+	assert.Contains(t, rendered, "(数据 18 分钟前)")
+}
+
+func TestRenderPrompt_BTCSignalDoesNotDuplicateRow(t *testing.T) {
+	in := fixedInput()
+	in.Signal.Symbol = "BTCUSDT"
+	btc := &macrocontext.PerpSnapshot{
+		Symbol: "BTCUSDT", FundingRatePct: decimal.NewFromFloat(0.01),
+		FundingLabel: "neutral", OISignal: "neutral", LSLabel: "balanced",
+		TopLSRatio: decimal.NewFromFloat(1.0),
+	}
+	in.Macro.PerpSelf = btc
+	in.Macro.PerpBTC = btc // same pointer (Reader aliases for BTC signals)
+	rendered, _, err := RenderPrompt(in)
+	require.NoError(t, err)
+	// "BTCUSDT: funding=" appears at most once
+	count := 0
+	for i := 0; i+8 < len(rendered); i++ {
+		if rendered[i:i+8] == "BTCUSDT:" {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count, "BTCUSDT row should appear exactly once for BTC signal; rendered:\n%s", rendered)
+}
+
+func TestRenderPrompt_PerpBTCOnly_NoPerpSelf(t *testing.T) {
+	in := fixedInput()
+	in.Macro.PerpSelf = nil
+	in.Macro.PerpBTC = &macrocontext.PerpSnapshot{
+		Symbol: "BTCUSDT", FundingRatePct: decimal.NewFromFloat(0.05),
+		FundingLabel: "mild_long", OISignal: "neutral", LSLabel: "balanced",
+		TopLSRatio: decimal.NewFromFloat(1.0),
+	}
+	rendered, _, err := RenderPrompt(in)
+	require.NoError(t, err)
+	assert.Contains(t, rendered, "BTCUSDT: funding=0.0500%")
+	assert.NotContains(t, rendered, "永续指标暂不可用")
 }

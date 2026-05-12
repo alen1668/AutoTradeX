@@ -57,6 +57,16 @@ BTC 当前在 24h 区间位置: {{.Input.Macro.Regime.PriceRangePos}}
 {{.Input.Macro.News.StaleMinutes}} 分钟前测: {{.Input.Macro.News.Summary}}
 {{else}}新闻数据暂不可用
 {{end}}
+【永续指标】
+{{if or .Input.Macro.PerpSelf .Input.Macro.PerpBTC -}}
+{{if .Input.Macro.PerpSelf -}}
+- {{.Input.Macro.PerpSelf.Symbol}}: funding={{.Input.Macro.PerpSelf.FundingRatePct.StringFixed 4}}% [{{.Input.Macro.PerpSelf.FundingLabel}}], OI 24h={{.Input.Macro.PerpSelf.OpenInterest24hPct.StringFixed 2}}% [{{.Input.Macro.PerpSelf.OISignal}}], top L/S={{.Input.Macro.PerpSelf.TopLSRatio.StringFixed 2}} [{{.Input.Macro.PerpSelf.LSLabel}}]{{if gt .Input.Macro.PerpSelf.StaleMinutes 5}} (数据 {{.Input.Macro.PerpSelf.StaleMinutes}} 分钟前){{end}}
+{{end -}}
+{{if and .Input.Macro.PerpBTC (or (not .Input.Macro.PerpSelf) (ne .Input.Macro.PerpBTC.Symbol .Input.Macro.PerpSelf.Symbol)) -}}
+- BTCUSDT: funding={{.Input.Macro.PerpBTC.FundingRatePct.StringFixed 4}}% [{{.Input.Macro.PerpBTC.FundingLabel}}], OI 24h={{.Input.Macro.PerpBTC.OpenInterest24hPct.StringFixed 2}}% [{{.Input.Macro.PerpBTC.OISignal}}], top L/S={{.Input.Macro.PerpBTC.TopLSRatio.StringFixed 2}} [{{.Input.Macro.PerpBTC.LSLabel}}]
+{{end -}}
+{{else}}永续指标暂不可用
+{{end}}
 【高波动时段标识】
 {{if .Input.HighVolWindows}}当前命中: {{.Input.HighVolWindows}} (信号在该时段需更谨慎)
 {{else}}非已知高波动时段
