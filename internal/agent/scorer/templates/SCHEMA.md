@@ -88,6 +88,42 @@
 | `.Volatility24h` | decimal.Decimal |
 | `.KlineLookback1h` | []decimal.Decimal |
 
+### 宏观上下文 (`{{.Input.Macro}}`，由 macrocontext.Reader 注入)
+
+包含 4 个可空子字段：`.Regime` / `.Events` / `.News` / `.PerpSelf` / `.PerpBTC`。
+任一为 nil/空时模板应渲染"暂不可用"分支。
+
+#### .Input.Macro.PerpSelf / .Input.Macro.PerpBTC (PerpSnapshot, 可能为 nil)
+
+```
+{{if or .Input.Macro.PerpSelf .Input.Macro.PerpBTC -}}
+{{if .Input.Macro.PerpSelf -}}
+- {{.Input.Macro.PerpSelf.Symbol}}: funding={{.Input.Macro.PerpSelf.FundingRatePct.StringFixed 4}}% [{{.Input.Macro.PerpSelf.FundingLabel}}], ...
+{{end -}}
+{{if and .Input.Macro.PerpBTC (or (not .Input.Macro.PerpSelf) (ne .Input.Macro.PerpBTC.Symbol .Input.Macro.PerpSelf.Symbol)) -}}
+- BTCUSDT: funding=...
+{{end -}}
+{{else}}永续指标暂不可用
+{{end}}
+```
+
+`PerpSnapshot` 字段（信号 symbol 自身 + BTCUSDT 大盘两套）：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `.Symbol` | string | 例 "BTCUSDT" |
+| `.FundingRatePct` | decimal.Decimal | 已乘 100，模板用 `.StringFixed 4` 渲染（"0.0250"） |
+| `.FundingLabel` | string | extreme_long\|mild_long\|neutral\|mild_short\|extreme_short |
+| `.OpenInterest24hPct` | decimal.Decimal | OI 24h % 变化 |
+| `.OISignal` | string | new_longs\|new_shorts\|short_squeeze\|capitulation\|neutral |
+| `.Price24hPct` | decimal.Decimal | 价格 24h % |
+| `.TopLSRatio` | decimal.Decimal | binance top-trader long/short ratio |
+| `.LSLabel` | string | strongly_bullish\|bullish\|balanced\|bearish\|strongly_bearish |
+| `.MeasuredAt` | time.Time | DB 写入时间 |
+| `.StaleMinutes` | int | now - MeasuredAt，> 5 时模板追加"(数据 X 分钟前)"后缀 |
+
+**BTC 信号去重**：当 `.Signal.Symbol == "BTCUSDT"` 时，`.PerpSelf` 与 `.PerpBTC` 是同一指针；模板用 `ne .Input.Macro.PerpBTC.Symbol .Input.Macro.PerpSelf.Symbol` 判断避免渲染重复行。
+
 ### 高波动时段
 
 `{{.Input.HighVolWindows}}` — `[]string`，可能为空 slice。当前可能值: `us_data_release_window` / `us_market_open_window` / `weekend_gap_window`。
