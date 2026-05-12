@@ -840,28 +840,132 @@ CI 配置在 `.github/workflows/ci.yml`，每次 push 自动跑。
 
 ## 架构
 
+### 信号主链路（同步，每条 TV webhook 走一遍）
+
 ```
-TradingView ─webhook─► /webhook/tv ─► [parse → idempotent → risk → decide → trade → notify]
+TradingView ─webhook─► /webhook/tv ─► parse ─► idempotent ─► risk ─► [agent scorer] ─► trade ─► notify
+                                                                          │                  │
+                                                                          │                  ├─ Binance Futures API ◄─── Trader (DryRun/Testnet/Live)
+                                                                          │                  └─ Notifier (Feishu / Telegram / WeCom)
                                                                           │
-                          ┌─ Binance Futures API ◄─── Trader (DryRun/Live)│
-                          │
-PostgreSQL ◄── repos ◄── application/{ingest,trade,reconcile}             │
-                                                                          │
-                                       Notifier (Feishu/Telegram) ◄───────┘
+                                                                          ▼
+                                                                  agent_evaluations
+                                                                  (LLM 打分落库 +
+                                                                   注入 pinned critique patterns)
 ```
+
+**关键流程**：
+- 硬风控（4 条规则）先过；过不了直接 `risk_denied`，没 LLM 调用。
+- 风控通过后，**agent scorer**（可选）调 LLM 给信号打 0–100 分 + approve/abandon 决策。低分被 abandon 后不下单。
+- scorer 渲染 prompt 时会读 `agent_critique_patterns WHERE pinned=true`，把"反思建议"段拼到 prompt 末尾。
+- trade 层执行下单 + 双止损（stop_loss + backup_stop）+ 可选止盈。所有订单走 reconcile 对账。
+
+### 后台 worker（异步，独立 goroutine）
+
+```
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│ regime       │  │ calendar     │  │ news         │  │ perp metrics │
+│ 每 N min     │  │ 每 24h       │  │ 每 N min     │  │ 每 5 min     │
+│ BTC 大盘状态 │  │ Forex Factory│  │ CoinDesk RSS │  │ 资金费率/OI/ │
+│ trend/range  │  │ 高重要性事件 │  │ + LLM 解读   │  │ 大户多空比   │
+└──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+       │                 │                 │                 │
+       ▼                 ▼                 ▼                 ▼
+              ┌────────────────────────────────────┐
+              │     MacroContext (scorer 注入)     │
+              └────────────────────────────────────┘
+
+┌──────────────────────────┐      ┌────────────────────────────┐
+│ outcome backfiller       │      │ critique (LLM 自反思)        │
+│ 每 5 min                  │  →   │ 每日 cron + 手动触发         │
+│ 给 agent_evaluations 打   │      │ 喂最近 N 天 outcome 数据    │
+│ win/loss/flat 标签:       │      │ 输出 patterns_json:         │
+│  - approve 用 PnL 真值    │      │  - 误判规律 + 修正建议     │
+│  - abandon 用 60min K 线  │      │  - 高置信自动 pin（默认）  │
+│   反事实价                │      │ → 反喂回 scorer prompt     │
+└──────────────────────────┘      └────────────────────────────┘
+```
+
+### 评估 / 调优看板（web 后台 `/eval/*`）
+
+| 页面 | 用途 |
+|------|------|
+| `/stats` | **登录后默认首页** — 收益统计、累计 PnL 曲线、日盈亏拆分 |
+| `/eval` | 灰度评估总览：score-bucket × PnL、Spearman、LLM 健康 |
+| `/eval/replays` | 用新 prompt 回放历史信号，对比新旧打分 / flip matrix |
+| `/eval/news` | 历次 LLM 新闻判读详情 |
+| `/eval/perp` | 永续合约指标历史快照 |
+| `/eval/critique` | LLM 自反思列表 + 详情；操作员钉选/取消注入到 prompt |
+| `/eval/postmortem` | 策略 × outcome 切片表 + 下钻看具体 evaluations |
+
+### 数据落库
+
+```
+策略 / 风控:     strategies, system_state, virtual_positions, orders, position_history
+信号 / 决策:     signals, agent_evaluations(+outcome_*列)
+agent context:   market_regime, economic_events, news_snapshots, perp_metrics
+LLM 自反思:      agent_critiques, agent_critique_patterns
+回放 / 评估:     replay_runs, replay_run_rows
+管理:            users, idempotency_keys
+```
+
+### 包结构
 
 | 包路径 | 职责 |
 |--------|------|
-| `cmd/tvbot` | 进程入口，装配依赖 |
-| `internal/application/ingest` | 信号摄入完整管道 |
+| `cmd/tvbot` | 进程入口，装配所有依赖与 worker |
+| `internal/application/ingest` | 信号摄入管道（parse / idempotent / risk / scorer / trade） |
 | `internal/application/trade` | 开仓 / 平仓 / 双止损挂单 |
 | `internal/application/reconcile` | 订单对账 + 启动恢复 |
-| `internal/risk` | 4 个风控规则 |
-| `internal/store` | Postgres 数据访问层 |
+| `internal/risk` | 4 条硬风控规则 |
+| `internal/agent/scorer` | LLM 信号评分（prompt 模板 + LLM client + 健康追踪） |
+| `internal/agent/macrocontext` | 聚合 regime/calendar/news/perp 给 scorer 用 |
+| `internal/agent/regime` | BTC 大盘状态 worker |
+| `internal/agent/calendar` | 经济日历 worker（Forex Factory） |
+| `internal/agent/news` | 加密新闻 LLM 判读 worker |
+| `internal/agent/perpmetrics` | 永续合约指标 worker |
+| `internal/agent/market` | 币安 K 线封装（scorer / 各 worker 共用） |
+| `internal/agent/history` | 历史成交记录提供给 scorer |
+| `internal/agent/portfolio` | 当前持仓汇总给 scorer |
+| `internal/agent/critique` | **LLM 自反思 agent**（找误判规律 + 自动钉选） |
+| `internal/eval` | 灰度评估 / 回放 / SSE 实时事件总线 |
+| `internal/eval/outcome` | **outcome backfiller**（给 evaluation 打 win/loss/flat 标签） |
+| `internal/store` | Postgres 数据访问层（每张表一个 repo） |
 | `internal/web` | HTTP 入口、admin UI、middleware |
+| `internal/web/admin` | 全部后台页面 handler + 模板 |
 | `internal/infrastructure/binance` | 币安 SDK 封装（live + testnet） |
-| `internal/notify` | 飞书 + Telegram |
+| `internal/notify` | 飞书 / Telegram / 企业微信通知 |
 | `internal/idempotency` | LRU + DB 双层去重 |
+
+### 自反思闭环（Self-Critique loop，2026-05 新增）
+
+```
+       ┌─────────────────────────────────────────────────────────────┐
+       │                                                             │
+       ▼                                                             │
+   信号 → scorer 打分 → agent_evaluations 落库                       │
+                              │                                      │
+                              ▼                                      │
+                  outcome backfiller 每 5min 扫:                     │
+                   - approve 路径: 看 position_history.pnl_usdc      │
+                   - abandon 路径: 60min 反事实 K 线                 │
+                  → 写回 outcome_label (win/loss/flat)               │
+                              │                                      │
+                              ▼                                      │
+                  critique LLM 每日 04:00 UTC (或手动):              │
+                  喂最近 N 天 evaluation+outcome,                    │
+                  输出 5 个左右"误判模式"                            │
+                              │                                      │
+                              ▼                                      │
+                  默认自动钉选 confidence=high 的                    │
+                  (可调: off/high/medium/all 在 /settings)           │
+                              │                                      │
+                              ▼                                      │
+                  下次 scorer 渲染 prompt 时                         │
+                  把 pinned patterns 的"修正建议"拼到 prompt 末尾 ──┘
+```
+
+**控制开关**：所有 worker / 自反思都在 `/settings` 可调；要回滚自反思的影响，把 `agent_critique_patterns.pinned` 全设 false 即可，无需改代码。
 
 ---
 
