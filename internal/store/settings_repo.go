@@ -394,3 +394,41 @@ func (r *SettingsRepo) SetPerpMetricsEnabled(ctx context.Context, q Querier, ena
 		`UPDATE system_state SET perp_metrics_enabled=$1, updated_at=now() WHERE id=1`, enabled)
 	return err
 }
+
+// UpdateOutcome stores the 6 outcome-backfiller knobs in one shot.
+// All fields validated by the caller (handler).
+func (r *SettingsRepo) UpdateOutcome(ctx context.Context, q Querier,
+	horizonMin int, winThresh, lossThresh decimal.Decimal,
+	batchSize, scanIntervalMin, staleCutoffH int,
+) error {
+	_, err := q.Exec(ctx, `
+UPDATE system_state
+SET outcome_horizon_min        = $1,
+    outcome_win_threshold_pct  = $2,
+    outcome_loss_threshold_pct = $3,
+    outcome_batch_size         = $4,
+    outcome_scan_interval_min  = $5,
+    outcome_stale_cutoff_h     = $6,
+    updated_at                 = now()
+WHERE id=1`, horizonMin, winThresh, lossThresh, batchSize, scanIntervalMin, staleCutoffH)
+	return err
+}
+
+// UpdateCritique stores the 6 critique-agent knobs in one shot.
+func (r *SettingsRepo) UpdateCritique(ctx context.Context, q Querier,
+	enabled bool, model string,
+	windowDays, minSample, maxPinned int,
+	cronUTC string,
+) error {
+	_, err := q.Exec(ctx, `
+UPDATE system_state
+SET critique_enabled     = $1,
+    critique_model       = $2,
+    critique_window_days = $3,
+    critique_min_sample  = $4,
+    critique_max_pinned  = $5,
+    critique_cron_utc    = $6,
+    updated_at           = now()
+WHERE id=1`, enabled, model, windowDays, minSample, maxPinned, cronUTC)
+	return err
+}

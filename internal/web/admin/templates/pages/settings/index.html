@@ -276,6 +276,85 @@
         数据落库：<code>perp_metrics</code>。覆盖 symbol = 所有 enabled strategy 的 symbol ∪ BTCUSDT。
       </p>
     </div>
+    <div class="border rounded p-3 md:col-span-2 mt-4">
+      <h3 class="font-medium mb-2">Outcome 标签 worker — agent_evaluations.outcome_*</h3>
+      <p class="text-xs text-gray-500 mb-3">
+        给每条 scorer 评估打 win/loss/flat 事后标签。approve 路径用 <code>position_history.pnl_usdc</code>；
+        abandon 路径用 horizon 分钟后的反事实币价。纯计算，不调 LLM。
+      </p>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <label class="block text-sm font-medium">反事实持有期（分钟）</label>
+          <input type="number" name="outcome_horizon_min" value="{{ .Settings.OutcomeHorizonMin }}" min="5" max="1440" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+          <p class="text-xs text-gray-500 mt-1">5..1440。默认 60。</p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium">扫描周期（分钟）</label>
+          <input type="number" name="outcome_scan_interval_min" value="{{ .Settings.OutcomeScanIntervalMin }}" min="1" max="60" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+          <p class="text-xs text-gray-500 mt-1">1..60。默认 5。</p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium">单批扫描行数</label>
+          <input type="number" name="outcome_batch_size" value="{{ .Settings.OutcomeBatchSize }}" min="10" max="2000" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+          <p class="text-xs text-gray-500 mt-1">10..2000。默认 200。</p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium">win 阈值 (%)</label>
+          <input type="text" name="outcome_win_threshold_pct" value="{{ .Settings.OutcomeWinThresholdPct }}" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono">
+          <p class="text-xs text-gray-500 mt-1">小数表示，0.003 = +0.3%。默认 0.003。</p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium">loss 阈值 (%)</label>
+          <input type="text" name="outcome_loss_threshold_pct" value="{{ .Settings.OutcomeLossThresholdPct }}" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono">
+          <p class="text-xs text-gray-500 mt-1">-0.003 = -0.3%。默认 -0.003。</p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium">无数据兜底时长（小时）</label>
+          <input type="number" name="outcome_stale_cutoff_h" value="{{ .Settings.OutcomeStaleCutoffH }}" min="1" max="168" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+          <p class="text-xs text-gray-500 mt-1">超过此时长仍无反事实价 → 标 unavailable。默认 24。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="border rounded p-3 md:col-span-2 mt-4">
+      <h3 class="font-medium mb-2">Critique 自省 worker — Agent 周期复盘（产生 LLM 调用费）</h3>
+      <label class="flex items-center mb-2">
+        <input type="checkbox" name="critique_enabled" {{ if .Settings.CritiqueEnabled }}checked{{ end }} class="mr-2">
+        <span class="text-sm">启用（每日 cron + UI 手动触发）</span>
+      </label>
+      <p class="text-xs text-gray-500 mb-3">
+        喂最近 N 天带 outcome 标签的 evaluations 给 LLM，输出结构化的"误判模式"。
+        操作员在 <a href="/eval/critique" class="text-blue-600 underline">/eval/critique</a> 钉选 pattern 后会注入 scorer prompt。
+      </p>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <label class="block text-sm font-medium">LLM 模型（留空 = 复用 scorer 模型）</label>
+          <input type="text" name="critique_model" value="{{ .Settings.CritiqueModel }}" placeholder="留空回退到 agent_scorer_model" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono">
+          <p class="text-xs text-gray-500 mt-1">复用 LLM API Key。复盘任务建议用更便宜 / 上下文更长的型号。</p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium">反思窗口（天）</label>
+          <input type="number" name="critique_window_days" value="{{ .Settings.CritiqueWindowDays }}" min="1" max="90" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+          <p class="text-xs text-gray-500 mt-1">1..90。默认 7。</p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium">最小样本量</label>
+          <input type="number" name="critique_min_sample" value="{{ .Settings.CritiqueMinSample }}" min="1" max="10000" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+          <p class="text-xs text-gray-500 mt-1">不够则跳过 LLM 调用，落 insufficient_sample 占位。默认 20。</p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium">scorer 注入上限</label>
+          <input type="number" name="critique_max_pinned" value="{{ .Settings.CritiqueMaxPinned }}" min="0" max="50" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+          <p class="text-xs text-gray-500 mt-1">scorer prompt 最多注入多少个 pinned pattern。默认 5；设 0 = 完全不注入。</p>
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-sm font-medium">cron 表达式（UTC，仅支持 <code>M H * * *</code> 形式）</label>
+          <input type="text" name="critique_cron_utc" value="{{ .Settings.CritiqueCronUTC }}" placeholder="0 4 * * *" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono">
+          <p class="text-xs text-gray-500 mt-1">默认 <code>0 4 * * *</code>（每日 04:00 UTC）。</p>
+        </div>
+      </div>
+    </div>
+
     <p class="text-xs text-gray-500">
       worker 修改 enabled 标记后下一个 tick 生效；间隔修改在下一次 tick 后生效。
       数据落库：<code>market_regime</code> / <code>economic_events</code> / <code>news_snapshots</code> / <code>perp_metrics</code>。

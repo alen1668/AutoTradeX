@@ -363,5 +363,75 @@ func (h *SettingsHandler) SaveMacro(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// Outcome backfiller worker
+	outcomeHorizon, err := strconv.Atoi(strings.TrimSpace(r.FormValue("outcome_horizon_min")))
+	if err != nil || outcomeHorizon < 5 || outcomeHorizon > 1440 {
+		http.Error(w, "outcome_horizon_min must be 5..1440", http.StatusBadRequest)
+		return
+	}
+	winThresh, err := decimal.NewFromString(strings.TrimSpace(r.FormValue("outcome_win_threshold_pct")))
+	if err != nil {
+		http.Error(w, "outcome_win_threshold_pct must be a decimal (e.g. 0.003)", http.StatusBadRequest)
+		return
+	}
+	lossThresh, err := decimal.NewFromString(strings.TrimSpace(r.FormValue("outcome_loss_threshold_pct")))
+	if err != nil {
+		http.Error(w, "outcome_loss_threshold_pct must be a decimal (e.g. -0.003)", http.StatusBadRequest)
+		return
+	}
+	outcomeBatch, err := strconv.Atoi(strings.TrimSpace(r.FormValue("outcome_batch_size")))
+	if err != nil || outcomeBatch < 10 || outcomeBatch > 2000 {
+		http.Error(w, "outcome_batch_size must be 10..2000", http.StatusBadRequest)
+		return
+	}
+	outcomeScan, err := strconv.Atoi(strings.TrimSpace(r.FormValue("outcome_scan_interval_min")))
+	if err != nil || outcomeScan < 1 || outcomeScan > 60 {
+		http.Error(w, "outcome_scan_interval_min must be 1..60", http.StatusBadRequest)
+		return
+	}
+	outcomeStale, err := strconv.Atoi(strings.TrimSpace(r.FormValue("outcome_stale_cutoff_h")))
+	if err != nil || outcomeStale < 1 || outcomeStale > 168 {
+		http.Error(w, "outcome_stale_cutoff_h must be 1..168", http.StatusBadRequest)
+		return
+	}
+	if err := h.repo.UpdateOutcome(r.Context(), h.pool,
+		outcomeHorizon, winThresh, lossThresh,
+		outcomeBatch, outcomeScan, outcomeStale,
+	); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Critique self-reflection worker
+	critiqueEnabled := r.FormValue("critique_enabled") == "on"
+	critiqueModel := strings.TrimSpace(r.FormValue("critique_model"))
+	critiqueWindow, err := strconv.Atoi(strings.TrimSpace(r.FormValue("critique_window_days")))
+	if err != nil || critiqueWindow < 1 || critiqueWindow > 90 {
+		http.Error(w, "critique_window_days must be 1..90", http.StatusBadRequest)
+		return
+	}
+	critiqueMinSample, err := strconv.Atoi(strings.TrimSpace(r.FormValue("critique_min_sample")))
+	if err != nil || critiqueMinSample < 1 || critiqueMinSample > 10000 {
+		http.Error(w, "critique_min_sample must be 1..10000", http.StatusBadRequest)
+		return
+	}
+	critiqueMaxPinned, err := strconv.Atoi(strings.TrimSpace(r.FormValue("critique_max_pinned")))
+	if err != nil || critiqueMaxPinned < 0 || critiqueMaxPinned > 50 {
+		http.Error(w, "critique_max_pinned must be 0..50", http.StatusBadRequest)
+		return
+	}
+	critiqueCron := strings.TrimSpace(r.FormValue("critique_cron_utc"))
+	if critiqueCron == "" {
+		critiqueCron = "0 4 * * *"
+	}
+	if err := h.repo.UpdateCritique(r.Context(), h.pool,
+		critiqueEnabled, critiqueModel,
+		critiqueWindow, critiqueMinSample, critiqueMaxPinned, critiqueCron,
+	); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	http.Redirect(w, r, "/settings?saved=1", http.StatusSeeOther)
 }
