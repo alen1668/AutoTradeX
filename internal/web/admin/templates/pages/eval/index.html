@@ -2,19 +2,47 @@
 <div class="space-y-6">
   <div class="flex items-center justify-between">
     <h1 class="text-2xl font-bold">灰度评估</h1>
-    <div class="flex items-center gap-4">
-      <a href="/eval/replays" class="text-blue-600 hover:underline text-sm">Replay 历史 →</a>
-      <a href="/eval/news" class="text-blue-600 hover:underline text-sm">News 历史 →</a>
-      <a href="/eval/perp" class="text-blue-600 hover:underline text-sm">Perp 历史 →</a>
-      <form method="get" action="/eval" class="flex items-center gap-2">
-        <label class="text-sm">窗口:</label>
-        <select name="since" onchange="this.form.submit()" class="border rounded px-2 py-1 bg-white">
-          {{ range .SinceOpts }}
-            <option value="{{ . }}" {{ if eq . $.Since }}selected{{ end }}>{{ . }}</option>
-          {{ end }}
-        </select>
-      </form>
-    </div>
+    <form method="get" action="/eval" class="flex items-center gap-2">
+      <label class="text-sm">窗口:</label>
+      <select name="since" onchange="this.form.submit()" class="border rounded px-2 py-1 bg-white">
+        {{ range .SinceOpts }}
+          <option value="{{ . }}" {{ if eq . $.Since }}selected{{ end }}>{{ . }}</option>
+        {{ end }}
+      </select>
+    </form>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+    <a href="/eval/replays" class="block bg-white border border-gray-200 hover:border-blue-400 hover:shadow-md rounded-lg p-4 transition">
+      <div class="flex items-center justify-between">
+        <div>
+          <div class="text-xs text-gray-500 uppercase tracking-wide">Prompt A/B 调优</div>
+          <div class="text-lg font-semibold text-gray-900 mt-1">Replay 历史</div>
+          <div class="text-xs text-gray-600 mt-1">回放历史信号 + 对比新旧 scorer prompt 结果</div>
+        </div>
+        <div class="text-blue-500 text-2xl">→</div>
+      </div>
+    </a>
+    <a href="/eval/news" class="block bg-white border border-gray-200 hover:border-blue-400 hover:shadow-md rounded-lg p-4 transition">
+      <div class="flex items-center justify-between">
+        <div>
+          <div class="text-xs text-gray-500 uppercase tracking-wide">新闻情绪</div>
+          <div class="text-lg font-semibold text-gray-900 mt-1">News 历史</div>
+          <div class="text-xs text-gray-600 mt-1">每 15min LLM 判定的加密新闻影响等级</div>
+        </div>
+        <div class="text-blue-500 text-2xl">→</div>
+      </div>
+    </a>
+    <a href="/eval/perp" class="block bg-white border border-gray-200 hover:border-blue-400 hover:shadow-md rounded-lg p-4 transition">
+      <div class="flex items-center justify-between">
+        <div>
+          <div class="text-xs text-gray-500 uppercase tracking-wide">永续合约情绪</div>
+          <div class="text-lg font-semibold text-gray-900 mt-1">Perp 历史</div>
+          <div class="text-xs text-gray-600 mt-1">每 5min 拉的资金费率 / 持仓量 / 大户多空比</div>
+        </div>
+        <div class="text-blue-500 text-2xl">→</div>
+      </div>
+    </a>
   </div>
 
   <div class="bg-white shadow rounded p-4">
