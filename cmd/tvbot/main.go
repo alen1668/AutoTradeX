@@ -149,6 +149,9 @@ func main() {
 	if dbSettings.TelegramEnabled && dbSettings.TelegramBotToken != "" && dbSettings.TelegramChatID != "" {
 		notifiers = append(notifiers, notify.NewTelegram("", dbSettings.TelegramBotToken, dbSettings.TelegramChatID))
 	}
+	if dbSettings.WecomEnabled && dbSettings.WecomWebhookURL != "" {
+		notifiers = append(notifiers, notify.NewWecom(dbSettings.WecomWebhookURL))
+	}
 	var notifier notify.Notifier
 	if len(notifiers) == 0 {
 		notifier = notify.NoOp{}
@@ -378,6 +381,7 @@ func main() {
 			r.Post("/settings/agent-scorer", settingsHandler.SaveAgentScorer)
 			r.Post("/settings/llm-api", settingsHandler.SaveLLMAPI)
 			r.Post("/settings/macro", settingsHandler.SaveMacro)
+			r.Post("/settings/wecom", settingsHandler.SaveWecom)
 
 			// Status partial (HTMX hx-get for status bar auto-refresh)
 			r.Get("/_partials/status", statusHandler.Partial)
@@ -431,7 +435,7 @@ func main() {
 			broker,
 			news.NewSettingsAdapter(settingsRepo, pool),
 			logger.With().Str("c", "news").Logger(),
-		)
+		).WithNotifier(notifier)
 		go newsWorker.Start(shutCtx)
 	}
 

@@ -262,6 +262,42 @@ func (h *SettingsHandler) SaveLLMAPI(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/settings?saved=1", http.StatusSeeOther)
 }
 
+// SaveWecom handles POST /settings/wecom — updates WeCom group bot webhook
+// + the news notify min-impact threshold.
+func (h *SettingsHandler) SaveWecom(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	enabled := r.FormValue("wecom_enabled") == "on"
+	webhookURL := strings.TrimSpace(r.FormValue("wecom_webhook_url"))
+	minImpact := strings.TrimSpace(r.FormValue("news_notify_min_impact"))
+
+	if enabled && webhookURL == "" {
+		http.Error(w, "启用企业微信需要先填 webhook URL", http.StatusBadRequest)
+		return
+	}
+	if enabled && !strings.HasPrefix(webhookURL, "https://qyapi.weixin.qq.com/cgi-bin/webhook/send") {
+		http.Error(w, "webhook URL 必须是 https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=... 格式", http.StatusBadRequest)
+		return
+	}
+	switch minImpact {
+	case "", "none", "low", "medium", "high":
+		// ok
+	default:
+		http.Error(w, "news_notify_min_impact 必须是 none|low|medium|high", http.StatusBadRequest)
+		return
+	}
+	if minImpact == "" {
+		minImpact = "medium"
+	}
+	if err := h.repo.UpdateWecom(r.Context(), h.pool, enabled, webhookURL, minImpact); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/settings?saved=1", http.StatusSeeOther)
+}
+
 // SaveMacro handles POST /settings/macro — updates regime/calendar/news
 // worker flags + intervals + news API key/model. Enabling News without an
 // LLM API key is rejected (precheck) so we never get into a state where

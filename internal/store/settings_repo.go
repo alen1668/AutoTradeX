@@ -43,6 +43,10 @@ type Settings struct {
 	NewsIntervalMin   int
 	NewsAPIKey        string
 	NewsLLMModel      string
+	// WeCom (企业微信) group bot + news notify threshold.
+	WecomEnabled        bool
+	WecomWebhookURL     string
+	NewsNotifyMinImpact string // none|low|medium|high
 }
 
 type SettingsRepo struct {
@@ -74,7 +78,8 @@ SELECT max_total_leverage, max_daily_loss_usdc,
        llm_api_provider, llm_api_key, llm_api_base_url,
        regime_enabled, regime_interval_min,
        calendar_enabled,
-       news_enabled, news_interval_min, news_api_key, news_llm_model
+       news_enabled, news_interval_min, news_api_key, news_llm_model,
+       wecom_enabled, wecom_webhook_url, news_notify_min_impact
   FROM system_state WHERE id=1`,
 	).Scan(&maxLev, &maxLoss, &feishuURL, &s.FeishuEnabled, &tgToken, &tgChat, &s.TelegramEnabled,
 		&bnKey, &bnSecret,
@@ -90,6 +95,7 @@ SELECT max_total_leverage, max_daily_loss_usdc,
 		&s.RegimeEnabled, &s.RegimeIntervalMin,
 		&s.CalendarEnabled,
 		&s.NewsEnabled, &s.NewsIntervalMin, &s.NewsAPIKey, &s.NewsLLMModel,
+		&s.WecomEnabled, &s.WecomWebhookURL, &s.NewsNotifyMinImpact,
 	)
 	if err != nil {
 		return nil, err
@@ -324,5 +330,20 @@ func (r *SettingsRepo) SetCalendarEnabled(ctx context.Context, q Querier, enable
 func (r *SettingsRepo) SetNewsEnabled(ctx context.Context, q Querier, enabled bool) error {
 	_, err := q.Exec(ctx,
 		`UPDATE system_state SET news_enabled=$1, updated_at=now() WHERE id=1`, enabled)
+	return err
+}
+
+// UpdateWecom stores the WeCom group bot webhook + enabled flag + news
+// notify threshold ('none'|'low'|'medium'|'high').
+func (r *SettingsRepo) UpdateWecom(ctx context.Context, q Querier,
+	enabled bool, webhookURL, newsMinImpact string,
+) error {
+	_, err := q.Exec(ctx, `
+UPDATE system_state SET
+    wecom_enabled          = $1,
+    wecom_webhook_url      = $2,
+    news_notify_min_impact = $3,
+    updated_at=now()
+ WHERE id=1`, enabled, webhookURL, newsMinImpact)
 	return err
 }

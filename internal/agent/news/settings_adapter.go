@@ -28,8 +28,9 @@ func (a *SettingsAdapter) Read(ctx context.Context) (WorkerSettings, error) {
 		return WorkerSettings{}, err
 	}
 	return WorkerSettings{
-		Enabled:     s.NewsEnabled,
-		IntervalMin: s.NewsIntervalMin,
-		TopN:        a.topN,
+		Enabled:         s.NewsEnabled,
+		IntervalMin:     s.NewsIntervalMin,
+		TopN:            a.topN,
+		NotifyMinImpact: s.NewsNotifyMinImpact,
 	}, nil
 }

@@ -270,4 +270,46 @@
     <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">保存宏观上下文配置</button>
   </form>
 </div>
+
+<div class="bg-white shadow rounded p-6 mb-6">
+  <h2 class="text-lg font-semibold mb-4">企业微信群机器人通知</h2>
+  <p class="text-sm text-gray-600 mb-3">
+    把 News 评估结果推送到企业微信群。News worker 每次跑完会判断 impact 是否达到阈值，达到才推送。
+  </p>
+  <details class="bg-gray-50 rounded p-3 mb-4 text-xs">
+    <summary class="cursor-pointer font-semibold">📖 怎么拿 webhook URL（点击展开）</summary>
+    <ol class="list-decimal list-inside mt-2 space-y-1 text-gray-700">
+      <li>电脑端打开企业微信，进入要接收消息的群</li>
+      <li>右上角"…" → "群机器人" → "添加机器人"</li>
+      <li>取个名字（如 "tvbot-news"），头像可选 → "添加"</li>
+      <li>添加成功后会显示 <strong>Webhook 地址</strong>，形如 <code>https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=XXX</code></li>
+      <li>复制整条地址粘贴到下方"Webhook URL"输入框</li>
+    </ol>
+    <p class="mt-2 text-gray-600">⚠ 这个 URL 等于群发权限，**不要泄漏**。</p>
+  </details>
+  <form method="POST" action="/settings/wecom" class="space-y-3 max-w-2xl">
+    <label class="flex items-center">
+      <input type="checkbox" name="wecom_enabled" {{ if .Settings.WecomEnabled }}checked{{ end }} class="mr-2">
+      <span class="text-sm">启用企业微信通知</span>
+    </label>
+    <div>
+      <label class="block text-sm font-medium">Webhook URL</label>
+      <input type="text" name="wecom_webhook_url" value="{{ .Settings.WecomWebhookURL }}"
+             placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."
+             class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono text-xs">
+    </div>
+    <div>
+      <label class="block text-sm font-medium">News 通知阈值（impact 达到此级别才推送）</label>
+      <select name="news_notify_min_impact" class="mt-1 rounded border border-gray-300 px-3 py-2 text-sm">
+        {{ $cur := .Settings.NewsNotifyMinImpact }}
+        <option value="high"   {{ if eq $cur "high" }}selected{{ end }}>high — 仅极端事件（每天 0-3 次）</option>
+        <option value="medium" {{ if or (eq $cur "medium") (eq $cur "") }}selected{{ end }}>medium — 重要事件 (默认，每天 ~10 次)</option>
+        <option value="low"    {{ if eq $cur "low"    }}selected{{ end }}>low — 包括一般信号（每天 ~50 次，可能刷屏）</option>
+        <option value="none"   {{ if eq $cur "none"   }}selected{{ end }}>none — 每次都推（每 15min 一次，会刷屏）</option>
+      </select>
+      <p class="text-xs text-gray-500 mt-1">默认 medium，避免群里被低质消息刷屏。</p>
+    </div>
+    <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">保存企业微信配置</button>
+  </form>
+</div>
 {{ end }}
