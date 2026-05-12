@@ -1,0 +1,92 @@
+package admin
+
+import (
+	"context"
+	"net/http"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// PostmortemHandler renders /eval/postmortem — the strategy × outcome
+// slice table over agent_evaluations. Pure read view; no mutations.
+type PostmortemHandler struct {
+	render  *Renderer
+	pool    *pgxpool.Pool
+	statusH *StatusHandler
+}
+
+func NewPostmortemHandler(r *Renderer, pool *pgxpool.Pool) *PostmortemHandler {
+	return &PostmortemHandler{render: r, pool: pool}
+}
+
+func (h *PostmortemHandler) WithStatus(s *StatusHandler) *PostmortemHandler {
+	h.statusH = s
+	return h
+}
+
+type postmortemCell struct {
+	Strategy  string
+	Outcome   string
+	Count     int
+	AvgScore  string
+	AvgPnLUSD string
+	WinRate   string
+}
+
+// View handles GET /eval/postmortem. Default window: last 14 days.
+func (h *PostmortemHandler) View(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	end := time.Now().UTC()
+	start := end.AddDate(0, 0, -14)
+
+	rows, err := h.pool.Query(ctx, `
+SELECT COALESCE(s.strategy_id, '')                                          AS strategy_id,
+       ae.outcome_label                                                      AS outcome,
+       count(*)                                                              AS cnt,
+       COALESCE(round(avg(ae.score)::numeric, 2)::text, '')                  AS avg_score,
+       COALESCE(round(avg(ae.outcome_pnl_usd)::numeric, 4)::text, '')        AS avg_pnl_usd,
+       COALESCE(
+         round(
+           sum(CASE WHEN ae.outcome_label='win' THEN 1 ELSE 0 END)::numeric
+             / nullif(count(*), 0)::numeric,
+           4
+         )::text,
+         '0'
+       )                                                                     AS win_rate
+FROM agent_evaluations ae
+JOIN signals s ON s.id = ae.signal_id
+WHERE ae.outcome_label IN ('win','loss','flat')
+  AND ae.created_at BETWEEN $1 AND $2
+GROUP BY s.strategy_id, ae.outcome_label
+ORDER BY s.strategy_id, ae.outcome_label`, start, end)
+	if err != nil {
+		http.Error(w, "query: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	defer rows.Close()
+
+	var cells []postmortemCell
+	for rows.Next() {
+		var c postmortemCell
+		if err := rows.Scan(&c.Strategy, &c.Outcome, &c.Count, &c.AvgScore, &c.AvgPnLUSD, &c.WinRate); err != nil {
+			http.Error(w, "scan: "+err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		cells = append(cells, c)
+	}
+
+	data := map[string]any{
+		"Title":    "Postmortem 切片",
+		"Cells":    cells,
+		"HasRows":  len(cells) > 0,
+		"StartFmt": start.Format("2006-01-02"),
+		"EndFmt":   end.Format("2006-01-02"),
+	}
+	if h.statusH != nil {
+		data = h.statusH.WithStatus(r, data)
+	}
+	h.render.Render(w, http.StatusOK, "eval/postmortem", data)
+}

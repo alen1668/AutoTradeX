@@ -301,6 +301,7 @@ func main() {
 	critiqueRepo := store.NewCritiqueRepo(pool)
 	critiqueManualCh := make(chan struct{}, 4)
 	critiqueHandler := admin.NewCritiqueHandler(renderer, critiqueRepo, critiqueManualCh).WithStatus(statusHandler)
+	postmortemHandler := admin.NewPostmortemHandler(renderer, pool).WithStatus(statusHandler)
 
 	// ── webhook handler ──────────────────────────────────────────────────────
 	webhookHandler := webhook.NewHandler(ingestSvc, dispatcher, logger)
@@ -389,6 +390,7 @@ func main() {
 			r.Get("/eval/critique/{id}", critiqueHandler.Detail)
 			r.Post("/eval/critique/run", critiqueHandler.Run)
 			r.Post("/eval/critique/patterns/{id}/pin", critiqueHandler.SetPin)
+			r.Get("/eval/postmortem", postmortemHandler.View)
 
 			// Settings
 			r.Get("/settings", settingsHandler.Index)
