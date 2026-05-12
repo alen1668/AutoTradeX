@@ -1,11 +1,18 @@
 {{ define "content" }}
 <div class="space-y-4">
-  <div>
-    <a href="/eval" class="text-blue-600 hover:underline text-sm">← 返回灰度评估</a>
-    <h1 class="text-2xl font-bold mt-1">News worker — 历史评估</h1>
+  <div class="flex items-center justify-between">
+    <div>
+      <a href="/eval" class="text-blue-600 hover:underline text-sm">← 返回灰度评估</a>
+      <h1 class="text-2xl font-bold mt-1 inline-flex items-center gap-2">
+        News worker — 历史评估
+        <button type="button" onclick="document.getElementById('news-help').classList.toggle('hidden')"
+                title="点击查看本页用途"
+                class="w-6 h-6 inline-flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-bold">?</button>
+      </h1>
+    </div>
   </div>
 
-  <div class="bg-blue-50 border border-blue-200 rounded p-4 text-sm space-y-2">
+  <div id="news-help" class="hidden bg-blue-50 border border-blue-200 rounded p-4 text-sm space-y-2">
     <p class="font-semibold text-blue-900">📖 这个页面是干什么用的</p>
     <p class="text-gray-700">
       News worker 每 15 分钟从 CoinDesk RSS 抓最新加密新闻，让 LLM 综合判断 <strong>未来 1-4h 短线影响</strong>，
@@ -77,20 +84,29 @@
       </table>
     </div>
 
-    <div class="flex items-center justify-between text-sm">
-      <p class="text-gray-500">每页 20 条 · 共 {{ len .Rows }} 条</p>
-      {{ if .NextCursor }}
-        <a href="/eval/news?cursor={{ .NextCursor }}" class="text-blue-600 hover:underline">下一页 →</a>
+    <div class="flex items-center justify-center mt-4 space-x-1 text-sm">
+      {{ if .HasPrev }}
+        <a href="?page=1" class="px-3 py-1 rounded border bg-white hover:bg-gray-100">« 首页</a>
+        <a href="?page={{ sub .Page 1 }}" class="px-3 py-1 rounded border bg-white hover:bg-gray-100">上一页</a>
       {{ else }}
-        <span class="text-gray-400">已到末页</span>
+        <span class="px-3 py-1 rounded border bg-gray-50 text-gray-400">« 首页</span>
+        <span class="px-3 py-1 rounded border bg-gray-50 text-gray-400">上一页</span>
+      {{ end }}
+      <span class="px-3 py-1 rounded bg-blue-600 text-white">{{ .Page }} / {{ .TotalPages }}</span>
+      {{ if .HasNext }}
+        <a href="?page={{ add .Page 1 }}" class="px-3 py-1 rounded border bg-white hover:bg-gray-100">下一页</a>
+        <a href="?page={{ .TotalPages }}" class="px-3 py-1 rounded border bg-white hover:bg-gray-100">末页 »</a>
+      {{ else }}
+        <span class="px-3 py-1 rounded border bg-gray-50 text-gray-400">下一页</span>
+        <span class="px-3 py-1 rounded border bg-gray-50 text-gray-400">末页 »</span>
       {{ end }}
     </div>
+    <p class="text-center text-xs text-gray-500">共 {{ .Total }} 条 · 每页 20 条</p>
   {{ end }}
 </div>
 
 <script>
-  // Render every <td data-ts="..."> as the viewer's local timezone instead of
-  // the server-side UTC string. Format: "YYYY-MM-DD HH:mm:ss" with 24h clock.
+  // Render every [data-ts] as the viewer's local timezone.
   (function() {
     const pad = n => String(n).padStart(2, '0');
     document.querySelectorAll('[data-ts]').forEach(el => {

@@ -91,6 +91,47 @@ SELECT id, measured_at, impact, summary, reasoning, per_headline, raw_headlines,
 	return out, rows.Err()
 }
 
+// CountAll returns the total number of rows.
+func (r *NewsSnapshotsRepo) CountAll(ctx context.Context, q Querier) (int, error) {
+	var n int
+	err := q.QueryRow(ctx, `SELECT COUNT(*) FROM news_snapshots`).Scan(&n)
+	return n, err
+}
+
+// ListPage returns one page of rows (OFFSET / LIMIT). Newest first.
+func (r *NewsSnapshotsRepo) ListPage(ctx context.Context, q Querier, limit, offset int) ([]NewsSnapshotRecord, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	rows, err := q.Query(ctx, `
+SELECT id, measured_at, impact, summary, reasoning, per_headline, raw_headlines,
+       prompt_hash, prompt_text, response_raw,
+       llm_model, llm_tokens_in, llm_tokens_out, llm_latency_ms, error_message
+  FROM news_snapshots
+ ORDER BY id DESC
+ LIMIT $1 OFFSET $2`, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []NewsSnapshotRecord
+	for rows.Next() {
+		var rec NewsSnapshotRecord
+		if err := rows.Scan(&rec.ID, &rec.MeasuredAt, &rec.Impact, &rec.Summary, &rec.Reasoning,
+			&rec.PerHeadline, &rec.RawHeadlines,
+			&rec.PromptHash, &rec.PromptText, &rec.ResponseRaw,
+			&rec.LLMModel, &rec.LLMTokensIn, &rec.LLMTokensOut, &rec.LLMLatencyMs,
+			&rec.ErrorMessage); err != nil {
+			return nil, err
+		}
+		out = append(out, rec)
+	}
+	return out, rows.Err()
+}
+
 // Get returns the row matching id, or pgx.ErrNoRows when absent.
 func (r *NewsSnapshotsRepo) Get(ctx context.Context, q Querier, id int64) (*NewsSnapshotRecord, error) {
 	var rec NewsSnapshotRecord

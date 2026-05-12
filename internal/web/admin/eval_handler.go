@@ -343,20 +343,33 @@ type newsListRow struct {
 	HasError       bool
 }
 
-// NewsList handles GET /eval/news. Lists the most recent news_snapshots.
-// Cursor pagination via ?cursor=<id> (rows with id < cursor).
+const newsPageSize = 20
+
+// NewsList handles GET /eval/news. Page-based paging via ?page=N (matches the
+// /positions paging style).
 func (h *EvalHandler) NewsList(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := withTimeout(r)
 	defer cancel()
 
-	var cursor int64
-	if c := r.URL.Query().Get("cursor"); c != "" {
-		_, _ = fmt.Sscanf(c, "%d", &cursor)
+	page := 1
+	if p := r.URL.Query().Get("page"); p != "" {
+		_, _ = fmt.Sscanf(p, "%d", &page)
 	}
+	if page < 1 {
+		page = 1
+	}
+
 	rows := []newsListRow{}
-	var nextCursor int64
+	total := 0
 	if h.newsRepo != nil {
-		recs, err := h.newsRepo.ListRecent(ctx, h.pool, 20, cursor)
+		var err error
+		total, err = h.newsRepo.CountAll(ctx, h.pool)
+		if err != nil {
+			http.Error(w, "count: "+err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		offset := (page - 1) * newsPageSize
+		recs, err := h.newsRepo.ListPage(ctx, h.pool, newsPageSize, offset)
 		if err != nil {
 			http.Error(w, "list: "+err.Error(), http.StatusServiceUnavailable)
 			return
@@ -390,14 +403,19 @@ func (h *EvalHandler) NewsList(w http.ResponseWriter, r *http.Request) {
 			}
 			rows = append(rows, row)
 		}
-		if len(recs) == 20 {
-			nextCursor = recs[len(recs)-1].ID
-		}
+	}
+	totalPages := (total + newsPageSize - 1) / newsPageSize
+	if totalPages < 1 {
+		totalPages = 1
 	}
 	data := map[string]any{
 		"Rows":       rows,
-		"NextCursor": nextCursor,
 		"HasRows":    len(rows) > 0,
+		"Page":       page,
+		"TotalPages": totalPages,
+		"Total":      total,
+		"HasPrev":    page > 1,
+		"HasNext":    page < totalPages,
 	}
 	if h.statusH != nil {
 		data = h.statusH.WithStatus(r, data)
