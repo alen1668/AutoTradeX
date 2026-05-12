@@ -40,6 +40,22 @@ func (f *fakeNewsRepo) Latest(ctx context.Context) (*store.NewsSnapshotRecord, e
 	return f.rec, f.err
 }
 
+type fakePerpRepo struct {
+	bySymbol map[string]*store.PerpMetricsRecord
+	err      error
+}
+
+func (f *fakePerpRepo) Latest(ctx context.Context, symbol string) (*store.PerpMetricsRecord, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.bySymbol[symbol], nil
+}
+
+type fakePerpSettings struct{ lookback int }
+
+func (f *fakePerpSettings) Get(ctx context.Context) (int, error) { return f.lookback, nil }
+
 func TestReader_Load_HappyPath(t *testing.T) {
 	now := time.Date(2026, 5, 13, 12, 30, 0, 0, time.UTC)
 
@@ -69,7 +85,7 @@ func TestReader_Load_HappyPath(t *testing.T) {
 		&fakeNewsRepo{rec: newsRec}).
 		WithClock(func() time.Time { return now })
 
-	got := r.Load(context.Background())
+	got := r.Load(context.Background(), "BTCUSDT")
 	if got.Regime == nil || got.Regime.Label != "range" {
 		t.Fatalf("Regime: %+v", got.Regime)
 	}
@@ -96,7 +112,7 @@ func TestReader_Load_RegimeMissing(t *testing.T) {
 		&fakeCalendarSrc{},
 		&fakeNewsRepo{},
 	)
-	got := r.Load(context.Background())
+	got := r.Load(context.Background(), "BTCUSDT")
 	if got.Regime != nil {
 		t.Errorf("Regime should be nil: %+v", got.Regime)
 	}
@@ -114,7 +130,7 @@ func TestReader_Load_PartialFailures(t *testing.T) {
 		&fakeCalendarSrc{err: errors.New("db")},
 		&fakeNewsRepo{err: errors.New("no rows")},
 	)
-	got := r.Load(context.Background())
+	got := r.Load(context.Background(), "BTCUSDT")
 	if got.Regime == nil {
 		t.Error("Regime should still be present despite other failures")
 	}
@@ -136,7 +152,7 @@ func TestReader_Load_NewsPerHeadlineInvalidJSON(t *testing.T) {
 	r := NewReader(&fakeRegimeRepo{err: errors.New("none")},
 		&fakeCalendarSrc{},
 		&fakeNewsRepo{rec: rec})
-	got := r.Load(context.Background())
+	got := r.Load(context.Background(), "BTCUSDT")
 	if got.News == nil || got.News.Impact != "high" {
 		t.Errorf("News should still be present: %+v", got.News)
 	}
@@ -147,8 +163,104 @@ func TestReader_Load_NewsPerHeadlineInvalidJSON(t *testing.T) {
 
 func TestReader_Load_AllNilDependencies(t *testing.T) {
 	r := NewReader(nil, nil, nil)
-	got := r.Load(context.Background())
+	got := r.Load(context.Background(), "BTCUSDT")
 	if got.Regime != nil || got.Events != nil || got.News != nil {
 		t.Errorf("all nil deps should yield zero MacroContext: %+v", got)
+	}
+	if got.PerpSelf != nil || got.PerpBTC != nil {
+		t.Errorf("perp should be nil without WithPerp wired: %+v / %+v", got.PerpSelf, got.PerpBTC)
+	}
+}
+
+func TestReader_Load_PerpWired_NonBTCSignal(t *testing.T) {
+	now := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
+	perp := &fakePerpRepo{bySymbol: map[string]*store.PerpMetricsRecord{
+		"ETHUSDT": {
+			Symbol: "ETHUSDT", ObservedAt: now.Add(-3 * time.Minute),
+			FundingRate:        decimal.NewFromFloat(0.00025),
+			FundingLabel:       "mild_long",
+			OpenInterest24hPct: decimal.NewFromFloat(3.2),
+			OISignal:           "new_longs",
+			TopLSRatio:         decimal.NewFromFloat(1.85),
+			LSLabel:            "bullish",
+		},
+		"BTCUSDT": {
+			Symbol: "BTCUSDT", ObservedAt: now.Add(-3 * time.Minute),
+			FundingRate:  decimal.NewFromFloat(0.0001),
+			FundingLabel: "neutral", OISignal: "neutral", LSLabel: "balanced",
+		},
+	}}
+	r := NewReader(nil, nil, nil).
+		WithPerp(perp, &fakePerpSettings{lookback: 30}).
+		WithClock(func() time.Time { return now })
+
+	got := r.Load(context.Background(), "ETHUSDT")
+	if got.PerpSelf == nil || got.PerpSelf.Symbol != "ETHUSDT" {
+		t.Fatalf("PerpSelf: %+v", got.PerpSelf)
+	}
+	if got.PerpSelf.FundingLabel != "mild_long" {
+		t.Errorf("PerpSelf.FundingLabel = %q, want mild_long", got.PerpSelf.FundingLabel)
+	}
+	// FundingRate 0.00025 -> FundingRatePct 0.025
+	if !got.PerpSelf.FundingRatePct.Equal(decimal.NewFromFloat(0.025)) {
+		t.Errorf("FundingRatePct = %v, want 0.025", got.PerpSelf.FundingRatePct)
+	}
+	if got.PerpBTC == nil || got.PerpBTC.Symbol != "BTCUSDT" {
+		t.Fatalf("PerpBTC: %+v", got.PerpBTC)
+	}
+	if got.PerpBTC == got.PerpSelf {
+		t.Error("PerpBTC and PerpSelf must be different pointers for non-BTC signal")
+	}
+}
+
+func TestReader_Load_PerpWired_BTCSignal_AliasedPointer(t *testing.T) {
+	now := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
+	perp := &fakePerpRepo{bySymbol: map[string]*store.PerpMetricsRecord{
+		"BTCUSDT": {
+			Symbol: "BTCUSDT", ObservedAt: now,
+			FundingRate:  decimal.NewFromFloat(0.0001),
+			FundingLabel: "neutral", OISignal: "neutral", LSLabel: "balanced",
+		},
+	}}
+	r := NewReader(nil, nil, nil).
+		WithPerp(perp, &fakePerpSettings{lookback: 30}).
+		WithClock(func() time.Time { return now })
+
+	got := r.Load(context.Background(), "BTCUSDT")
+	if got.PerpSelf == nil || got.PerpBTC == nil {
+		t.Fatalf("PerpSelf / PerpBTC should be non-nil: %+v %+v", got.PerpSelf, got.PerpBTC)
+	}
+	if got.PerpSelf != got.PerpBTC {
+		t.Errorf("PerpSelf and PerpBTC should be the same pointer for BTCUSDT signal")
+	}
+}
+
+func TestReader_Load_PerpStaleBeyondLookback_ReturnsNil(t *testing.T) {
+	now := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
+	perp := &fakePerpRepo{bySymbol: map[string]*store.PerpMetricsRecord{
+		"BTCUSDT": {
+			Symbol: "BTCUSDT", ObservedAt: now.Add(-2 * time.Hour),
+			FundingLabel: "neutral", OISignal: "neutral", LSLabel: "balanced",
+		},
+	}}
+	r := NewReader(nil, nil, nil).
+		WithPerp(perp, &fakePerpSettings{lookback: 30}). // 30min < 2h
+		WithClock(func() time.Time { return now })
+
+	got := r.Load(context.Background(), "BTCUSDT")
+	if got.PerpSelf != nil {
+		t.Errorf("stale perp data should be treated as unavailable, got %+v", got.PerpSelf)
+	}
+}
+
+func TestReader_Load_PerpRepoEmpty_FailOpen(t *testing.T) {
+	now := time.Now().UTC()
+	perp := &fakePerpRepo{bySymbol: map[string]*store.PerpMetricsRecord{}} // no rows
+	r := NewReader(nil, nil, nil).
+		WithPerp(perp, &fakePerpSettings{lookback: 30}).
+		WithClock(func() time.Time { return now })
+	got := r.Load(context.Background(), "BTCUSDT")
+	if got.PerpSelf != nil || got.PerpBTC != nil {
+		t.Error("empty perp repo should yield nil PerpSelf/PerpBTC (fail-open)")
 	}
 }

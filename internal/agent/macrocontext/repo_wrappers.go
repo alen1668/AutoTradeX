@@ -36,3 +36,36 @@ func WrapNewsRepo(repo *store.NewsSnapshotsRepo, pool *pgxpool.Pool) NewsReader 
 func (a *newsRepoAdapter) Latest(ctx context.Context) (*store.NewsSnapshotRecord, error) {
 	return a.repo.Latest(ctx, a.pool)
 }
+
+type perpRepoAdapter struct {
+	repo *store.PerpMetricsRepo
+	pool *pgxpool.Pool
+}
+
+// WrapPerpRepo returns a PerpReader bound to the supplied pool.
+func WrapPerpRepo(repo *store.PerpMetricsRepo, pool *pgxpool.Pool) PerpReader {
+	return &perpRepoAdapter{repo: repo, pool: pool}
+}
+
+func (a *perpRepoAdapter) Latest(ctx context.Context, symbol string) (*store.PerpMetricsRecord, error) {
+	return a.repo.Latest(ctx, a.pool, symbol)
+}
+
+// settingsForPerpAdapter projects store.SettingsRepo into SettingsForPerp.
+type settingsForPerpAdapter struct {
+	repo *store.SettingsRepo
+	pool *pgxpool.Pool
+}
+
+// WrapSettingsForPerp returns a SettingsForPerp bound to the supplied pool.
+func WrapSettingsForPerp(repo *store.SettingsRepo, pool *pgxpool.Pool) SettingsForPerp {
+	return &settingsForPerpAdapter{repo: repo, pool: pool}
+}
+
+func (a *settingsForPerpAdapter) Get(ctx context.Context) (int, error) {
+	s, err := a.repo.Get(ctx, a.pool)
+	if err != nil {
+		return 0, err
+	}
+	return s.PerpMetricsLookbackMinutes, nil
+}

@@ -48,8 +48,9 @@ type AgentHook struct {
 
 // MacroReader is the surface AgentHook depends on for fetching macro context.
 // macrocontext.Reader implements this; tests can substitute a stub.
+// signalSymbol selects which symbol's perp metrics are loaded as PerpSelf.
 type MacroReader interface {
-	Load(ctx context.Context) macrocontext.MacroContext
+	Load(ctx context.Context, signalSymbol string) macrocontext.MacroContext
 }
 
 // NewAgentHook is the production constructor. Pass nil for any provider
@@ -229,7 +230,7 @@ func (h *AgentHook) assembleInput(
 	})
 	g.Go(func() error {
 		if h.macroReader != nil {
-			in.Macro = h.macroReader.Load(gctx)
+			in.Macro = h.macroReader.Load(gctx, sig.Symbol)
 		}
 		return nil
 	})
