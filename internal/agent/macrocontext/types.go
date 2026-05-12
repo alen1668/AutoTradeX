@@ -14,9 +14,11 @@ import (
 // when the corresponding worker has never produced data; the prompt template
 // detects nil and renders "暂不可用".
 type MacroContext struct {
-	Regime *Regime
-	Events []Event
-	News   *NewsAlert
+	Regime   *Regime
+	Events   []Event
+	News     *NewsAlert
+	PerpSelf *PerpSnapshot // 信号 symbol 自身; nil 表示数据不可用
+	PerpBTC  *PerpSnapshot // BTCUSDT 大盘; signal symbol == BTCUSDT 时与 PerpSelf 同指针
 }
 
 type Regime struct {
@@ -53,6 +55,21 @@ type HeadlineJudgment struct {
 	URL    string `json:"url"`
 	Impact string `json:"impact"`
 	Reason string `json:"reason"`
+}
+
+// PerpSnapshot is the prompt-friendly projection of a perp_metrics row.
+// FundingRatePct is funding * 100 so the template can render "0.025%".
+type PerpSnapshot struct {
+	Symbol             string
+	FundingRatePct     decimal.Decimal
+	FundingLabel       string
+	OpenInterest24hPct decimal.Decimal
+	OISignal           string
+	Price24hPct        decimal.Decimal
+	TopLSRatio         decimal.Decimal
+	LSLabel            string
+	MeasuredAt         time.Time
+	StaleMinutes       int
 }
 
 // MinutesBetween returns int minutes from `from` to `to`. Positive when `to` is later.
