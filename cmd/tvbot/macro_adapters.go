@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	bn "github.com/adshao/go-binance/v2"
+	"github.com/adshao/go-binance/v2/futures"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
 
@@ -11,6 +13,24 @@ import (
 	"github.com/lizhaojie/tvbot/internal/agent/perpmetrics"
 	"github.com/lizhaojie/tvbot/internal/store"
 )
+
+// liveBinanceFuturesURL is the production fapi endpoint. Perp metrics
+// (funding / OI / long-short ratio) are public market data — same value
+// regardless of trading mode — so we always read from live, even in testnet.
+const liveBinanceFuturesURL = "https://fapi.binance.com"
+
+// newLivePerpClient returns a futures.Client pointing at the live binance
+// fapi endpoint. The api key/secret are empty because all perp-metrics
+// endpoints we use are public (no signature required).
+//
+// We override BaseURL after construction because adshao/go-binance reads
+// the testnet flag once at NewFuturesClient time and the binance Trader
+// has already set futures.UseTestnet for the trading client.
+func newLivePerpClient() *futures.Client {
+	c := bn.NewFuturesClient("", "")
+	c.BaseURL = liveBinanceFuturesURL
+	return c
+}
 
 // regimeRepoAdapter wraps store.MarketRegimeRepo + *pgxpool.Pool to satisfy
 // regime.Repository (which expects an Insert that doesn't take a Querier).

@@ -446,11 +446,13 @@ func main() {
 
 	// ── perp metrics worker ────────────────────────────────────────────────
 	// Gated by settings.perp_metrics_enabled (default false). Pulls funding /
-	// OI / top-LS ratio per (active strategy symbol ∪ BTCUSDT). Read path
-	// in macrocontext.Reader is already wired above; the worker is what
-	// populates the table.
-	if bt, ok := trader.(*binanceinfra.Trader); ok {
-		perpFetcher := perpmetrics.NewBinanceFetcher(bt.FuturesClient())
+	// OI / top-LS ratio per (active strategy symbol ∪ BTCUSDT).
+	//
+	// Perp metrics are a market-wide public dataset (no auth required) — we
+	// always use the LIVE binance URL so testnet deployments still see real
+	// market sentiment data. Trades still go through the testnet trader.
+	if _, ok := trader.(*binanceinfra.Trader); ok {
+		perpFetcher := perpmetrics.NewBinanceFetcher(newLivePerpClient())
 		perpWorker := perpmetrics.NewWorker(
 			perpFetcher,
 			perpKlineAdapter{provider: marketProv},
