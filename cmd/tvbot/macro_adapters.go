@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
 
 	bn "github.com/adshao/go-binance/v2"
 	"github.com/adshao/go-binance/v2/futures"
@@ -121,4 +122,36 @@ func (a perpSymbolsAdapter) ActiveSymbols(ctx context.Context) ([]string, error)
 		out = append(out, row.Symbol)
 	}
 	return out, nil
+}
+
+// outcomeKlineAdapter satisfies outcome.KlineFetcher. It queries a single
+// 1h kline whose open boundary covers `target` (±5min tolerance) and
+// returns its close price. Used by the outcome backfiller for the
+// abandon-path counterfactual. Reuses the live binance fapi endpoint
+// (same as perp metrics) so testnet deployments still see real history.
+type outcomeKlineAdapter struct {
+	client *futures.Client
+}
+
+func (a outcomeKlineAdapter) CounterfactClose(ctx context.Context, symbol string, target time.Time) (*decimal.Decimal, error) {
+	startMs := target.Add(-5 * time.Minute).UnixMilli()
+	endMs := target.Add(5 * time.Minute).UnixMilli()
+	klines, err := a.client.NewKlinesService().
+		Symbol(symbol).
+		Interval("1h").
+		StartTime(startMs).
+		EndTime(endMs).
+		Limit(1).
+		Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(klines) == 0 {
+		return nil, nil
+	}
+	d, err := decimal.NewFromString(klines[0].Close)
+	if err != nil {
+		return nil, fmt.Errorf("parse counterfact close %q: %w", klines[0].Close, err)
+	}
+	return &d, nil
 }

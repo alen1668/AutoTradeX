@@ -12,6 +12,7 @@ import (
 
 	"github.com/alexedwards/scs/v2"
 	"github.com/go-chi/chi/v5"
+	"github.com/rs/zerolog"
 	"github.com/shopspring/decimal"
 
 	"github.com/lizhaojie/tvbot/internal/agent/calendar"
@@ -28,6 +29,7 @@ import (
 	"github.com/lizhaojie/tvbot/internal/application/trade"
 	"github.com/lizhaojie/tvbot/internal/config"
 	evalpkg "github.com/lizhaojie/tvbot/internal/eval"
+	"github.com/lizhaojie/tvbot/internal/eval/outcome"
 	"github.com/lizhaojie/tvbot/internal/idempotency"
 	binanceinfra "github.com/lizhaojie/tvbot/internal/infrastructure/binance"
 	ilog "github.com/lizhaojie/tvbot/internal/log"
@@ -467,6 +469,35 @@ func main() {
 		logger.Warn().Msg("perp metrics worker not started: trader is not BinanceTrader")
 	}
 
+	// ── outcome backfiller worker ──────────────────────────────────────────
+	// Backfills agent_evaluations.outcome_* columns for every scored signal:
+	// approve path → trades.pnl_usdc via position_history; abandon path →
+	// fixed-horizon counterfactual close from live binance. Pure data layer,
+	// no LLM. Safe to run continuously.
+	{
+		outcomeSettings := outcome.NewSettingsAdapter(settingsRepo, pool)
+		outcomeCfg, err := outcomeSettings.Read(shutCtx)
+		if err != nil {
+			logger.Warn().Err(err).Msg("outcome: settings load failed, using defaults")
+			outcomeCfg = outcome.Config{
+				HorizonMin:   60,
+				BatchSize:    200,
+				ScanInterval: 5 * time.Minute,
+				StaleCutoffH: 24,
+			}
+		}
+		outcomeRepo := outcome.NewPGRepo(pool)
+		outcomeWorker := outcome.NewWorker(
+			outcomeRepo,                                       // PendingReader
+			outcomeKlineAdapter{client: newLivePerpClient()}, // KlineFetcher
+			outcomeRepo,                                       // Writer
+			outcomeCfg,
+			ptrLogger(logger.With().Str("c", "outcome").Logger()),
+		)
+		go outcomeWorker.Start(shutCtx)
+		logger.Info().Msg("outcome worker started")
+	}
+
 	// ── Phase 2 replay worker ────────────────────────────────────────────────
 	// Polls replay_runs WHERE status='pending' every 1s. Web form is the only
 	// pending-row producer; cmd/agent-eval --replay creates 'running' directly.
@@ -536,3 +567,7 @@ func main() {
 		logger.Warn().Err(err).Msg("dispatcher shutdown timed out — pending signals stay in DB for next recovery")
 	}
 }
+
+// ptrLogger returns a pointer to l. Convenience for worker constructors
+// that take *zerolog.Logger.
+func ptrLogger(l zerolog.Logger) *zerolog.Logger { return &l }
