@@ -1,0 +1,28 @@
+你是一个交易 AI 的复盘分析师。请基于以下数据找出该 scorer 系统性的误判模式。
+
+【窗口】{{.WindowStart.Format "2006-01-02 15:04"}} ~ {{.WindowEnd.Format "2006-01-02 15:04"}} (样本 {{.SampleSize}} 条)
+
+【上次复盘摘要(供参考，避免重复)】
+{{if .PreviousSummary}}{{.PreviousSummary}}{{else}}(无){{end}}
+
+【按策略 × 大盘 regime × outcome 聚合】
+strategy_id | regime | outcome | count | avg_score | avg_pnl_usd | win_rate
+{{range .Aggregates -}}
+{{.StrategyID}} | {{.Regime}} | {{.Outcome}} | {{.Count}} | {{.AvgScore}} | {{.AvgPnLUSD}} | {{.WinRate}}
+{{end}}
+
+【明细 (最多 200 条，按时间倒序)】
+signal_id | strategy | symbol | kind | score | decision | outcome | pnl_pct | reasoning(截短60字)
+{{range .Details -}}
+{{.SignalID}} | {{.StrategyID}} | {{.Symbol}} | {{.Kind}} | {{.Score}} | {{.Decision}} | {{.Outcome}} | {{.PnLPct}} | {{.ReasoningShort}}
+{{end}}
+
+请找出 3-5 个最显著的系统性误判模式。每个模式必须：
+1. 有明确的触发条件 (描述清楚什么策略 / 什么市场状态 / 什么信号特征)
+2. 引用至少 3 个支持的 signal_id 作为 evidence
+3. 给出 stats (approve 数 / win_rate / avg_loss)
+4. 给出可操作的 prompt 修改建议 (不超过 2 句)
+5. 标 confidence: high / medium / low
+
+严格返回以下 JSON, 不要包含任何额外文字、解释或代码块标记:
+{"summary":"...","patterns":[{"id":"p1","title":"...","evidence_signal_ids":[...],"stats":{...},"suggestion_for_prompt":"...","confidence":"high|medium|low"}]}
