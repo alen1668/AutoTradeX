@@ -16,9 +16,9 @@
     <a href="/eval/replays" class="block bg-white border border-gray-200 hover:border-blue-400 hover:shadow-md rounded-lg p-4 transition">
       <div class="flex items-center justify-between">
         <div>
-          <div class="text-xs text-gray-500 uppercase tracking-wide">Prompt A/B 调优</div>
-          <div class="text-lg font-semibold text-gray-900 mt-1">Replay 历史</div>
-          <div class="text-xs text-gray-600 mt-1">回放历史信号 + 对比新旧 scorer prompt 结果</div>
+          <div class="text-xs text-gray-500 uppercase tracking-wide">调 AI 评分提问语</div>
+          <div class="text-lg font-semibold text-gray-900 mt-1">历史回放对比</div>
+          <div class="text-xs text-gray-600 mt-1">拿过去的信号用新旧两版"提问语"重新让 AI 打一次分，看分数差多少</div>
         </div>
         <div class="text-blue-500 text-2xl">→</div>
       </div>
@@ -26,9 +26,9 @@
     <a href="/eval/news" class="block bg-white border border-gray-200 hover:border-blue-400 hover:shadow-md rounded-lg p-4 transition">
       <div class="flex items-center justify-between">
         <div>
-          <div class="text-xs text-gray-500 uppercase tracking-wide">新闻情绪</div>
-          <div class="text-lg font-semibold text-gray-900 mt-1">News 历史</div>
-          <div class="text-xs text-gray-600 mt-1">每 15min LLM 判定的加密新闻影响等级</div>
+          <div class="text-xs text-gray-500 uppercase tracking-wide">新闻判读</div>
+          <div class="text-lg font-semibold text-gray-900 mt-1">新闻历史</div>
+          <div class="text-xs text-gray-600 mt-1">每 15 分钟让 AI 读一遍加密圈新闻，标"影响大/中/小"</div>
         </div>
         <div class="text-blue-500 text-2xl">→</div>
       </div>
@@ -36,9 +36,9 @@
     <a href="/eval/perp" class="block bg-white border border-gray-200 hover:border-blue-400 hover:shadow-md rounded-lg p-4 transition">
       <div class="flex items-center justify-between">
         <div>
-          <div class="text-xs text-gray-500 uppercase tracking-wide">永续合约情绪</div>
-          <div class="text-lg font-semibold text-gray-900 mt-1">Perp 历史</div>
-          <div class="text-xs text-gray-600 mt-1">每 5min 拉的资金费率 / 持仓量 / 大户多空比</div>
+          <div class="text-xs text-gray-500 uppercase tracking-wide">合约市场情绪</div>
+          <div class="text-lg font-semibold text-gray-900 mt-1">永续合约指标历史</div>
+          <div class="text-xs text-gray-600 mt-1">每 5 分钟从币安拉资金费率 / 未平仓总量 / 大户多空比</div>
         </div>
         <div class="text-blue-500 text-2xl">→</div>
       </div>
@@ -46,9 +46,9 @@
     <a href="/eval/critique" class="block bg-white border border-gray-200 hover:border-blue-400 hover:shadow-md rounded-lg p-4 transition">
       <div class="flex items-center justify-between">
         <div>
-          <div class="text-xs text-gray-500 uppercase tracking-wide">Agent 自省</div>
-          <div class="text-lg font-semibold text-gray-900 mt-1">反思 (Critique)</div>
-          <div class="text-xs text-gray-600 mt-1">LLM 周期复盘 outcome 数据；钉选模式注入 prompt</div>
+          <div class="text-xs text-gray-500 uppercase tracking-wide">AI 自我复盘</div>
+          <div class="text-lg font-semibold text-gray-900 mt-1">复盘 (反思)</div>
+          <div class="text-xs text-gray-600 mt-1">让 AI 看自己最近一周打分 vs 实际盈亏，找常犯的判错规律；钉住的规律下次会写进提问语</div>
         </div>
         <div class="text-blue-500 text-2xl">→</div>
       </div>
@@ -57,8 +57,8 @@
       <div class="flex items-center justify-between">
         <div>
           <div class="text-xs text-gray-500 uppercase tracking-wide">事后归因</div>
-          <div class="text-lg font-semibold text-gray-900 mt-1">Postmortem 切片</div>
-          <div class="text-xs text-gray-600 mt-1">策略 × outcome 多维聚合，找系统性偏差</div>
+          <div class="text-lg font-semibold text-gray-900 mt-1">策略胜负切片</div>
+          <div class="text-xs text-gray-600 mt-1">把所有打过分的信号按「策略 × 事后赢/输/没动」分组，看哪个策略系统性翻车</div>
         </div>
         <div class="text-blue-500 text-2xl">→</div>
       </div>
