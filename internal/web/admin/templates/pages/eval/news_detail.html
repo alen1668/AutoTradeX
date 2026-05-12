@@ -24,8 +24,8 @@
       </p>
     </div>
     <div class="bg-white shadow rounded p-3">
-      <p class="text-xs text-gray-500">测得时间 (UTC)</p>
-      <p class="text-sm font-mono mt-1">{{ unix2human .MeasuredAtUnix }}</p>
+      <p class="text-xs text-gray-500">测得时间 <span class="text-gray-400">(浏览器时区)</span></p>
+      <p class="text-sm font-mono mt-1 ts-local" data-ts="{{ .MeasuredAtUnix }}">{{ unix2human .MeasuredAtUnix }}</p>
     </div>
     <div class="bg-white shadow rounded p-3">
       <p class="text-xs text-gray-500">LLM 模型</p>
@@ -108,8 +108,20 @@
   </details>
 
   <details class="bg-white shadow rounded p-4">
-    <summary class="cursor-pointer text-sm font-semibold">🗃 raw_headlines（cryptopanic 上游原文）</summary>
+    <summary class="cursor-pointer text-sm font-semibold">🗃 raw_headlines（CoinDesk RSS 原始字段）</summary>
     <pre class="text-xs bg-gray-50 mt-3 p-3 rounded overflow-auto max-h-96">{{ .PrettyRaw }}</pre>
   </details>
 </div>
+
+<script>
+  (function() {
+    const pad = n => String(n).padStart(2, '0');
+    document.querySelectorAll('[data-ts]').forEach(el => {
+      const ts = parseInt(el.dataset.ts, 10);
+      if (!ts) return;
+      const d = new Date(ts * 1000);
+      el.textContent = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    });
+  })();
+</script>
 {{ end }}

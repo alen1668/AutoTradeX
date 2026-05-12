@@ -3,10 +3,25 @@
   <div>
     <a href="/eval" class="text-blue-600 hover:underline text-sm">← 返回灰度评估</a>
     <h1 class="text-2xl font-bold mt-1">News worker — 历史评估</h1>
-    <p class="text-sm text-gray-500 mt-1">
-      每次 worker 跑都会写一行（成功 / 失败都写）。点击 ID 进入详情查看
-      <strong>LLM 的 reasoning + 每条新闻的独立判断 + 完整 prompt / raw response</strong>。
+  </div>
+
+  <div class="bg-blue-50 border border-blue-200 rounded p-4 text-sm space-y-2">
+    <p class="font-semibold text-blue-900">📖 这个页面是干什么用的</p>
+    <p class="text-gray-700">
+      News worker 每 15 分钟从 CoinDesk RSS 抓最新加密新闻，让 LLM 综合判断 <strong>未来 1-4h 短线影响</strong>，
+      结果（high / medium / low / none）会被注入 scorer 的 prompt，影响 TradingView 信号的打分。
     </p>
+    <p class="text-gray-700">
+      <strong>本页的用途</strong>：人肉验证 LLM 的判断是否合理 —— 防止它把炒作误标 high、把真黑天鹅误标 low。
+      具体怎么用：
+    </p>
+    <ol class="list-decimal list-inside ml-2 space-y-1 text-gray-700">
+      <li>每天扫一眼列表，看 impact 分布是否合理（normal 时段应大多 low/none，事件时段才出 high）</li>
+      <li>对每条 <strong>HIGH</strong> 点进详情，看 LLM 给的 reasoning + 每条新闻的独立判断是否扛得住质询</li>
+      <li>发现误判 → 收集 case → 改 <code>internal/agent/news/classifier.go</code> 里的 prompt → 灰度</li>
+      <li>跑 1-2 周累积足够样本后，才考虑把"新闻 → 主动下单/平仓"放到下一个 spec</li>
+    </ol>
+    <p class="text-gray-500 text-xs">数据库表 <code>news_snapshots</code>；想直接 SQL 查也行。</p>
   </div>
 
   {{ if not .HasRows }}
@@ -14,7 +29,6 @@
       <p class="font-semibold text-yellow-900">📭 暂无 news 评估记录</p>
       <ol class="list-decimal list-inside mt-2 space-y-1 text-gray-700">
         <li>到 <a href="/settings" class="text-blue-600 underline">/settings</a> 滚到底部"宏观上下文 — News worker"</li>
-        <li>填好 CryptoPanic API Key（见输入框上方的注册指引）</li>
         <li>确认上方"LLM API"已配置 API Key</li>
         <li>勾选"启用 News worker" → 保存</li>
         <li>下一个 tick（默认 15min）后会出现第一条记录；想立即看可重启 bot</li>
@@ -26,7 +40,7 @@
         <thead class="bg-gray-50">
           <tr class="text-left">
             <th class="px-3 py-2">ID</th>
-            <th class="px-3 py-2">测得时间</th>
+            <th class="px-3 py-2">测得时间 <span class="text-xs text-gray-400 font-normal">(浏览器时区)</span></th>
             <th class="px-3 py-2">整体 impact</th>
             <th class="px-3 py-2">标题数</th>
             <th class="px-3 py-2">Summary</th>
@@ -41,7 +55,7 @@
             <td class="px-3 py-2">
               <a href="/eval/news/{{ .ID }}" class="text-blue-600">#{{ .ID }}</a>
             </td>
-            <td class="px-3 py-2">{{ unix2human .MeasuredAtUnix }}</td>
+            <td class="px-3 py-2 ts-local" data-ts="{{ .MeasuredAtUnix }}">{{ unix2human .MeasuredAtUnix }}</td>
             <td class="px-3 py-2">
               {{ if eq .Impact "high" }}<span class="px-2 py-0.5 bg-red-100 text-red-800 rounded text-xs font-semibold">HIGH</span>
               {{ else if eq .Impact "medium" }}<span class="px-2 py-0.5 bg-orange-100 text-orange-800 rounded text-xs">MEDIUM</span>
@@ -63,11 +77,28 @@
       </table>
     </div>
 
-    {{ if .NextCursor }}
-      <div class="text-right">
-        <a href="/eval/news?cursor={{ .NextCursor }}" class="text-blue-600 hover:underline text-sm">下一页 →</a>
-      </div>
-    {{ end }}
+    <div class="flex items-center justify-between text-sm">
+      <p class="text-gray-500">每页 20 条 · 共 {{ len .Rows }} 条</p>
+      {{ if .NextCursor }}
+        <a href="/eval/news?cursor={{ .NextCursor }}" class="text-blue-600 hover:underline">下一页 →</a>
+      {{ else }}
+        <span class="text-gray-400">已到末页</span>
+      {{ end }}
+    </div>
   {{ end }}
 </div>
+
+<script>
+  // Render every <td data-ts="..."> as the viewer's local timezone instead of
+  // the server-side UTC string. Format: "YYYY-MM-DD HH:mm:ss" with 24h clock.
+  (function() {
+    const pad = n => String(n).padStart(2, '0');
+    document.querySelectorAll('[data-ts]').forEach(el => {
+      const ts = parseInt(el.dataset.ts, 10);
+      if (!ts) return;
+      const d = new Date(ts * 1000);
+      el.textContent = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    });
+  })();
+</script>
 {{ end }}

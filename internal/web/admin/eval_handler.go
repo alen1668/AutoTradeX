@@ -356,7 +356,7 @@ func (h *EvalHandler) NewsList(w http.ResponseWriter, r *http.Request) {
 	rows := []newsListRow{}
 	var nextCursor int64
 	if h.newsRepo != nil {
-		recs, err := h.newsRepo.ListRecent(ctx, h.pool, 50, cursor)
+		recs, err := h.newsRepo.ListRecent(ctx, h.pool, 20, cursor)
 		if err != nil {
 			http.Error(w, "list: "+err.Error(), http.StatusServiceUnavailable)
 			return
@@ -390,7 +390,7 @@ func (h *EvalHandler) NewsList(w http.ResponseWriter, r *http.Request) {
 			}
 			rows = append(rows, row)
 		}
-		if len(recs) == 50 {
+		if len(recs) == 20 {
 			nextCursor = recs[len(recs)-1].ID
 		}
 	}
