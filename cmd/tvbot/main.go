@@ -19,6 +19,7 @@ import (
 	"github.com/lizhaojie/tvbot/internal/agent/macrocontext"
 	"github.com/lizhaojie/tvbot/internal/agent/market"
 	"github.com/lizhaojie/tvbot/internal/agent/news"
+	"github.com/lizhaojie/tvbot/internal/agent/perpmetrics"
 	"github.com/lizhaojie/tvbot/internal/agent/portfolio"
 	"github.com/lizhaojie/tvbot/internal/agent/regime"
 	"github.com/lizhaojie/tvbot/internal/agent/scorer"
@@ -236,11 +237,15 @@ func main() {
 	regimeRepo := store.NewMarketRegimeRepo(pool)
 	eventsRepo := store.NewEconomicEventsRepo(pool)
 	newsRepo := store.NewNewsSnapshotsRepo(pool)
+	perpRepo := store.NewPerpMetricsRepo(pool)
 	calendarStore := calendar.NewStoreAdapter(eventsRepo, pool)
 	macroReader := macrocontext.NewReader(
 		macrocontext.WrapRegimeRepo(regimeRepo, pool),
 		calendarStore,
 		macrocontext.WrapNewsRepo(newsRepo, pool),
+	).WithPerp(
+		macrocontext.WrapPerpRepo(perpRepo, pool),
+		macrocontext.WrapSettingsForPerp(settingsRepo, pool),
 	)
 
 	agentHook := ingest.NewAgentHook(scorerFactory, historyProv, portfolioProv, marketProv).
@@ -437,6 +442,26 @@ func main() {
 			logger.With().Str("c", "news").Logger(),
 		).WithNotifier(notifier)
 		go newsWorker.Start(shutCtx)
+	}
+
+	// ── perp metrics worker ────────────────────────────────────────────────
+	// Gated by settings.perp_metrics_enabled (default false). Pulls funding /
+	// OI / top-LS ratio per (active strategy symbol ∪ BTCUSDT). Read path
+	// in macrocontext.Reader is already wired above; the worker is what
+	// populates the table.
+	if bt, ok := trader.(*binanceinfra.Trader); ok {
+		perpFetcher := perpmetrics.NewBinanceFetcher(bt.FuturesClient())
+		perpWorker := perpmetrics.NewWorker(
+			perpFetcher,
+			perpKlineAdapter{provider: marketProv},
+			perpStoreAdapter{repo: perpRepo, pool: pool},
+			perpSymbolsAdapter{strategyRepo: strategyRepo, pool: pool},
+			perpmetrics.NewSettingsAdapter(settingsRepo, pool),
+			logger.With().Str("c", "perp").Logger(),
+		)
+		go perpWorker.Start(shutCtx)
+	} else {
+		logger.Warn().Msg("perp metrics worker not started: trader is not BinanceTrader")
 	}
 
 	// ── Phase 2 replay worker ────────────────────────────────────────────────
