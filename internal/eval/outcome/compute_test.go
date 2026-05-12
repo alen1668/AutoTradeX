@@ -79,3 +79,68 @@ func TestCompute_Unavailable(t *testing.T) {
 		t.Fatalf("want unavailable, got %s", r.Label)
 	}
 }
+
+func TestCompute_AbandonBuyWin(t *testing.T) {
+	in := Input{
+		Direction: "buy", SignalPrice: dec("100"),
+		CounterfactPrice: dp("100.5"), // +0.5%
+		WinThresh: dec("0.003"), LossThresh: dec("-0.003"),
+		HorizonMin: 60,
+	}
+	r := Compute(in)
+	if r.Label != LabelWin {
+		t.Fatalf("want win, got %s", r.Label)
+	}
+	if r.PnLPct == nil || !r.PnLPct.Round(4).Equal(dec("0.005")) {
+		t.Fatalf("want pnl_pct=0.005, got %v", r.PnLPct)
+	}
+}
+
+func TestCompute_AbandonSellWin(t *testing.T) {
+	// sell + price dropped → counterfactual win
+	in := Input{
+		Direction: "sell", SignalPrice: dec("100"),
+		CounterfactPrice: dp("99.5"), // -0.5% raw, *(-1) = +0.5%
+		WinThresh: dec("0.003"), LossThresh: dec("-0.003"),
+	}
+	r := Compute(in)
+	if r.Label != LabelWin {
+		t.Fatalf("sell + price down should be win, got %s", r.Label)
+	}
+}
+
+func TestCompute_AbandonFlat(t *testing.T) {
+	in := Input{
+		Direction: "buy", SignalPrice: dec("100"),
+		CounterfactPrice: dp("100.1"), // +0.1% < win thresh 0.3%
+		WinThresh: dec("0.003"), LossThresh: dec("-0.003"),
+	}
+	r := Compute(in)
+	if r.Label != LabelFlat {
+		t.Fatalf("want flat, got %s", r.Label)
+	}
+}
+
+func TestCompute_AbandonLoss(t *testing.T) {
+	in := Input{
+		Direction: "buy", SignalPrice: dec("100"),
+		CounterfactPrice: dp("99.4"), // -0.6%
+		WinThresh: dec("0.003"), LossThresh: dec("-0.003"),
+	}
+	r := Compute(in)
+	if r.Label != LabelLoss {
+		t.Fatalf("want loss, got %s", r.Label)
+	}
+}
+
+func TestCompute_AbandonZeroSignalPrice(t *testing.T) {
+	// Edge: signal_price=0 → unavailable (would div-by-zero)
+	in := Input{
+		Direction: "buy", SignalPrice: dec("0"),
+		CounterfactPrice: dp("100"),
+	}
+	r := Compute(in)
+	if r.Label != LabelUnavailable {
+		t.Fatalf("want unavailable on zero signal_price, got %s", r.Label)
+	}
+}
