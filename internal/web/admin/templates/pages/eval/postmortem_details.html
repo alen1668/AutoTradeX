@@ -1,0 +1,73 @@
+{{ define "content" }}
+<div class="space-y-4">
+  <div>
+    <a href="/eval/postmortem?since={{ .Since }}" class="text-blue-600 hover:underline text-sm">← 返回 Postmortem 切片</a>
+    <h1 class="text-2xl font-bold mt-1">
+      Postmortem 明细 — 策略 <span class="font-mono">{{ if .Strategy }}{{ .Strategy }}{{ else }}(无策略 ID){{ end }}</span> ·
+      {{ if eq .Outcome "win" }}<span class="px-2 py-0.5 bg-green-100 text-green-800 rounded text-base align-middle">win</span>
+      {{ else if eq .Outcome "loss" }}<span class="px-2 py-0.5 bg-red-100 text-red-800 rounded text-base align-middle">loss</span>
+      {{ else }}<span class="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-base align-middle">{{ .Outcome }}</span>{{ end }}
+    </h1>
+    <p class="text-gray-600 text-sm mt-1">窗口 {{ .Since }} · 最多 200 条，按时间倒序</p>
+  </div>
+
+  {{ if not .HasRows }}
+    <div class="bg-yellow-50 border border-yellow-200 rounded p-4 text-sm">
+      <p>这个切片在当前窗口下没有 evaluation 记录。</p>
+    </div>
+  {{ else }}
+    <div class="bg-white shadow rounded overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50">
+          <tr class="text-left">
+            <th class="px-3 py-2">时间</th>
+            <th class="px-3 py-2">Signal</th>
+            <th class="px-3 py-2">交易对</th>
+            <th class="px-3 py-2">方向</th>
+            <th class="px-3 py-2 text-right">分数</th>
+            <th class="px-3 py-2">scorer 决定</th>
+            <th class="px-3 py-2 text-right">实际 PnL ($)</th>
+            <th class="px-3 py-2 text-right">反事实 PnL (%)</th>
+            <th class="px-3 py-2">reasoning (截短)</th>
+          </tr>
+        </thead>
+        <tbody>
+        {{ range .Rows }}
+          <tr class="border-t hover:bg-gray-50">
+            <td class="px-3 py-2 ts-local font-mono text-xs" data-ts="{{ .CreatedAtUnix }}">{{ .CreatedAtUnix }}</td>
+            <td class="px-3 py-2 font-mono"><a class="text-blue-600 hover:underline" href="/signals/{{ .SignalID }}">#{{ .SignalID }}</a></td>
+            <td class="px-3 py-2 font-mono">{{ .Symbol }}</td>
+            <td class="px-3 py-2 text-xs">
+              {{ if eq .Kind "long" }}<span class="px-2 py-0.5 bg-green-50 text-green-700 rounded">long</span>
+              {{ else if eq .Kind "short" }}<span class="px-2 py-0.5 bg-red-50 text-red-700 rounded">short</span>
+              {{ else }}{{ .Kind }}{{ end }}
+            </td>
+            <td class="px-3 py-2 text-right font-mono">{{ .Score }}</td>
+            <td class="px-3 py-2">
+              {{ if eq .Decision "approve" }}<span class="px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs">approve</span>
+              {{ else if eq .Decision "abandon" }}<span class="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">abandon</span>
+              {{ else }}<span class="px-2 py-0.5 bg-orange-100 text-orange-800 rounded text-xs">{{ .Decision }}</span>{{ end }}
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs">{{ .PnLUSD }}</td>
+            <td class="px-3 py-2 text-right font-mono text-xs">{{ .PnLPct }}</td>
+            <td class="px-3 py-2 text-xs text-gray-700">{{ .ReasoningShort }}</td>
+          </tr>
+        {{ end }}
+        </tbody>
+      </table>
+    </div>
+  {{ end }}
+</div>
+
+<script>
+  (function() {
+    const pad = n => String(n).padStart(2, '0');
+    document.querySelectorAll('[data-ts]').forEach(el => {
+      const ts = parseInt(el.dataset.ts, 10);
+      if (!ts) return;
+      const d = new Date(ts * 1000);
+      el.textContent = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    });
+  })();
+</script>
+{{ end }}
