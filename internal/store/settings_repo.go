@@ -57,6 +57,13 @@ type Settings struct {
 	OutcomeBatchSize        int
 	OutcomeScanIntervalMin  int
 	OutcomeStaleCutoffH     int
+	// Critique self-reflection (agent/critique package).
+	CritiqueEnabled    bool
+	CritiqueModel      string
+	CritiqueWindowDays int
+	CritiqueMinSample  int
+	CritiqueMaxPinned  int
+	CritiqueCronUTC    string
 }
 
 type SettingsRepo struct {
@@ -92,7 +99,9 @@ SELECT max_total_leverage, max_daily_loss_usdc,
        wecom_enabled, wecom_webhook_url, news_notify_min_impact,
        perp_metrics_enabled, perp_metrics_lookback_minutes,
        outcome_horizon_min, outcome_win_threshold_pct, outcome_loss_threshold_pct,
-       outcome_batch_size, outcome_scan_interval_min, outcome_stale_cutoff_h
+       outcome_batch_size, outcome_scan_interval_min, outcome_stale_cutoff_h,
+       critique_enabled, critique_model, critique_window_days,
+       critique_min_sample, critique_max_pinned, critique_cron_utc
   FROM system_state WHERE id=1`,
 	).Scan(&maxLev, &maxLoss, &feishuURL, &s.FeishuEnabled, &tgToken, &tgChat, &s.TelegramEnabled,
 		&bnKey, &bnSecret,
@@ -112,6 +121,8 @@ SELECT max_total_leverage, max_daily_loss_usdc,
 		&s.PerpMetricsEnabled, &s.PerpMetricsLookbackMinutes,
 		&s.OutcomeHorizonMin, &s.OutcomeWinThresholdPct, &s.OutcomeLossThresholdPct,
 		&s.OutcomeBatchSize, &s.OutcomeScanIntervalMin, &s.OutcomeStaleCutoffH,
+		&s.CritiqueEnabled, &s.CritiqueModel, &s.CritiqueWindowDays,
+		&s.CritiqueMinSample, &s.CritiqueMaxPinned, &s.CritiqueCronUTC,
 	)
 	if err != nil {
 		return nil, err
