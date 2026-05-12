@@ -394,6 +394,7 @@ func main() {
 			r.Get("/eval/critique/{id}", critiqueHandler.Detail)
 			r.Post("/eval/critique/run", critiqueHandler.Run)
 			r.Post("/eval/critique/patterns/{id}/pin", critiqueHandler.SetPin)
+			r.Post("/eval/critique/{id}/bulk-pin", critiqueHandler.BulkPin)
 			r.Get("/eval/postmortem", postmortemHandler.View)
 			r.Get("/eval/postmortem/details", postmortemHandler.Details)
 

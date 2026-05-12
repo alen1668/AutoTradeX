@@ -149,6 +149,56 @@ func (h *CritiqueHandler) Run(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// BulkPin handles POST /eval/critique/{id}/bulk-pin?confidence=high.
+// Pins (or unpins, when body.Pinned=false) all patterns of the given
+// critique whose confidence matches ?confidence=high|medium|low|all.
+// "all" means every pattern in that critique. Operator-driven shortcut
+// — preserves "human in the loop" but kills the click-each tax.
+func (h *CritiqueHandler) BulkPin(w http.ResponseWriter, r *http.Request) {
+	critiqueID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || critiqueID <= 0 {
+		http.Error(w, "bad critique id", http.StatusBadRequest)
+		return
+	}
+	conf := r.URL.Query().Get("confidence")
+	if conf != "high" && conf != "medium" && conf != "low" && conf != "all" {
+		http.Error(w, "confidence must be one of high|medium|low|all", http.StatusBadRequest)
+		return
+	}
+	var body struct {
+		Pinned bool `json:"pinned"`
+	}
+	body.Pinned = true // default: pin
+	_ = json.NewDecoder(r.Body).Decode(&body)
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	patterns, err := h.repo.PatternsByCritique(ctx, critiqueID)
+	if err != nil {
+		http.Error(w, "patterns: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	affected := 0
+	for _, p := range patterns {
+		if conf != "all" && p.Confidence != conf {
+			continue
+		}
+		if p.Pinned == body.Pinned {
+			continue // already in desired state
+		}
+		if err := h.repo.SetPinned(ctx, p.ID, body.Pinned, "manual-bulk"); err != nil {
+			http.Error(w, "pin: "+err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		affected++
+	}
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":   "ok",
+		"affected": affected,
+	})
+}
+
 // SetPin handles POST /eval/critique/patterns/{id}/pin with JSON body
 // {"pinned": true|false}.
 func (h *CritiqueHandler) SetPin(w http.ResponseWriter, r *http.Request) {

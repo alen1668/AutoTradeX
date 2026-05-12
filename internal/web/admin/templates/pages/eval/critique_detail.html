@@ -1,9 +1,24 @@
 {{ define "content" }}
 <div class="space-y-4">
-  <div>
-    <a href="/eval/critique" class="text-blue-600 hover:underline text-sm">← 返回反思列表</a>
-    <h1 class="text-2xl font-bold mt-1">反思详情 #{{ .CritiqueID }}</h1>
-    <p class="text-gray-600 text-sm mt-1">钉选某条模式后，scorer 下次评分时会把建议拼到 prompt 末尾。取消钉选恢复原状。</p>
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <a href="/eval/critique" class="text-blue-600 hover:underline text-sm">← 返回反思列表</a>
+      <h1 class="text-2xl font-bold mt-1">反思详情 #{{ .CritiqueID }}</h1>
+      <p class="text-gray-600 text-sm mt-1">钉选某条模式后，scorer 下次评分时会把建议拼到 prompt 末尾。取消钉选恢复原状。</p>
+    </div>
+    {{ if .HasRows }}
+    <div class="flex flex-col items-end gap-2 shrink-0">
+      <button type="button" id="bulk-pin-high" class="px-3 py-1.5 rounded bg-green-600 text-white hover:bg-green-700 text-sm" title="一次钉选这条反思里所有「高置信」模式">
+        一键钉选高置信
+      </button>
+      <button type="button" id="bulk-pin-all" class="px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700 text-sm" title="一次钉选这条反思里所有模式（含中/低置信）">
+        全部钉选
+      </button>
+      <button type="button" id="bulk-unpin-all" class="px-3 py-1.5 rounded bg-gray-200 text-gray-700 hover:bg-gray-300 text-xs" title="一次取消这条反思下所有已钉选">
+        全部取消钉选
+      </button>
+    </div>
+    {{ end }}
   </div>
 
   {{ if not .HasRows }}
@@ -57,5 +72,33 @@
       }
     });
   });
+
+  // Bulk pin/unpin buttons. Confidence query controls which patterns
+  // are affected; body.pinned controls direction.
+  async function bulkPin(confidence, pinned, confirmMsg) {
+    if (!confirm(confirmMsg)) return;
+    const critiqueId = {{ .CritiqueID }};
+    const resp = await fetch(`/eval/critique/${critiqueId}/bulk-pin?confidence=${confidence}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pinned: pinned }),
+    });
+    if (resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      if (data.affected === 0) {
+        alert('没有可操作的模式（可能都已是目标状态）');
+      } else {
+        location.reload();
+      }
+    } else {
+      alert('操作失败: ' + resp.status);
+    }
+  }
+  const hi = document.getElementById('bulk-pin-high');
+  if (hi) hi.addEventListener('click', () => bulkPin('high', true, '钉选所有高置信模式？这些建议会被拼到下一次 scorer prompt 里。'));
+  const all = document.getElementById('bulk-pin-all');
+  if (all) all.addEventListener('click', () => bulkPin('all', true, '钉选这条反思里全部模式（含中/低置信）？'));
+  const un = document.getElementById('bulk-unpin-all');
+  if (un) un.addEventListener('click', () => bulkPin('all', false, '取消这条反思下所有已钉选？'));
 </script>
 {{ end }}
