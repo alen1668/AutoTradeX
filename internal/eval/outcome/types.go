@@ -56,17 +56,28 @@ type Result struct {
 	ComputedAt time.Time
 }
 
-// Reader is the DB-facing interface — worker.go satisfies it with pgx.
-// Defined here so unit tests can use a fake.
-type Reader interface {
-	// PendingEvaluations returns up to limit rows with outcome_label NULL
-	// AND created_at older than (now - minAgeMin minutes).
+// PendingReader supplies DB-resident inputs to the outcome worker: the
+// list of evaluations awaiting an outcome label, and the realized PnL
+// of any associated closed position. PGRepo (pg.go) implements this.
+type PendingReader interface {
+	// PendingEvaluations returns up to limit signals whose
+	// agent_evaluations.outcome_label is NULL AND that are older than
+	// minAgeMin minutes. Only signals with kind IN ('long','short') are
+	// returned (exit_* signals have no win/loss semantic).
 	PendingEvaluations(ctx context.Context, limit, minAgeMin int) ([]EvalRow, error)
-	// TradesPnL returns the actual realized PnL of the first closed trade
-	// for a signal, or (nil, nil) if no closed trade.
-	TradesPnL(ctx context.Context, signalID int64) (*decimal.Decimal, error)
-	// CounterfactClose returns the close price at-or-after target_time
-	// (within ±5min), or (nil, nil) if no data.
+	// PositionPnL returns the realized pnl_usdc of the first
+	// position_history row whose entry_signal_id matches signalID, or
+	// (nil, nil) if no closed position exists for that signal.
+	PositionPnL(ctx context.Context, signalID int64) (*decimal.Decimal, error)
+}
+
+// KlineFetcher supplies the counterfactual close price for the abandon
+// path. Production wires this to internal/agent/market.KlineClient
+// (live Binance HTTP); tests use a fake. Worker (worker.go) holds one.
+type KlineFetcher interface {
+	// CounterfactClose returns the close price at-or-near target_time
+	// for symbol, or (nil, nil) if no data available. ±5min tolerance is
+	// implementation's responsibility.
 	CounterfactClose(ctx context.Context, symbol string, target time.Time) (*decimal.Decimal, error)
 }
 
