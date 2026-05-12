@@ -2,6 +2,7 @@ package admin
 
 import (
 	"bytes"
+	"context"
 	"embed"
 	"fmt"
 	"html/template"
@@ -16,7 +17,16 @@ var templatesFS embed.FS
 
 // Renderer parses templates once at construction; serves them by page name.
 type Renderer struct {
-	templates map[string]*template.Template
+	templates      map[string]*template.Template
+	bannerProvider *NewsBannerProvider // optional; injected via WithNewsBanner
+}
+
+// WithNewsBanner wires the news banner provider. Subsequent Render calls
+// auto-inject the latest banner into data["NewsBanner"] (when data is a
+// map[string]any and the key is not already set).
+func (r *Renderer) WithNewsBanner(p *NewsBannerProvider) *Renderer {
+	r.bannerProvider = p
+	return r
 }
 
 func NewRenderer() (*Renderer, error) {
@@ -265,6 +275,7 @@ func (r *Renderer) Render(w http.ResponseWriter, status int, name string, data a
 		http.Error(w, "template not found: "+name, http.StatusInternalServerError)
 		return
 	}
+	data = r.injectNewsBanner(data)
 	var buf bytes.Buffer
 	if err := t.ExecuteTemplate(&buf, "base", data); err != nil {
 		http.Error(w, "render: "+err.Error(), http.StatusInternalServerError)
@@ -273,6 +284,27 @@ func (r *Renderer) Render(w http.ResponseWriter, status int, name string, data a
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	_, _ = buf.WriteTo(w)
+}
+
+// injectNewsBanner adds data["NewsBanner"] from the cached provider if
+// (a) the provider is wired AND (b) data is a map[string]any AND
+// (c) "NewsBanner" key is not already set. Typed-struct pages skip
+// silently — the partial renders nothing when .NewsBanner is nil.
+func (r *Renderer) injectNewsBanner(data any) any {
+	if r.bannerProvider == nil {
+		return data
+	}
+	m, ok := data.(map[string]any)
+	if !ok {
+		return data
+	}
+	if _, present := m["NewsBanner"]; present {
+		return data
+	}
+	if b := r.bannerProvider.Latest(context.Background()); b != nil {
+		m["NewsBanner"] = b
+	}
+	return m
 }
 
 // RenderPartial renders a single named partial (without layout). Useful for HTMX swaps.

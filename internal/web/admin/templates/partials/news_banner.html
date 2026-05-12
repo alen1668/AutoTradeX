@@ -1,0 +1,47 @@
+{{ define "news_banner" }}
+{{ if . }}
+<div id="news-banner" data-news-id="{{ .ID }}" class="hidden border-b
+    {{ if eq .Impact "high" }}bg-red-50 border-red-200 text-red-900
+    {{ else if eq .Impact "medium" }}bg-yellow-50 border-yellow-200 text-yellow-900
+    {{ else }}bg-blue-50 border-blue-200 text-blue-900{{ end }}">
+  <div class="max-w-7xl mx-auto px-4 py-2 flex items-center gap-3 text-sm">
+    <span class="shrink-0 px-2 py-0.5 rounded text-xs font-semibold
+        {{ if eq .Impact "high" }}bg-red-200 text-red-900
+        {{ else if eq .Impact "medium" }}bg-yellow-200 text-yellow-900
+        {{ else }}bg-blue-200 text-blue-900{{ end }}">📰 {{ .ImpactLabel }}</span>
+    <a href="/eval/news/{{ .ID }}" class="flex-1 truncate hover:underline" title="点击查看新闻详情">{{ .Summary }}</a>
+    <span class="shrink-0 text-xs text-gray-500 ts-local" data-ts="{{ .MeasuredAtUnix }}">{{ .MeasuredAtUnix }}</span>
+    <button type="button" id="news-banner-close" class="shrink-0 w-6 h-6 inline-flex items-center justify-center rounded hover:bg-black/10 text-lg leading-none" title="关闭此提示（仅对当前新闻 ID）">×</button>
+  </div>
+</div>
+<script>
+  (function () {
+    const banner = document.getElementById('news-banner');
+    if (!banner) return;
+    const id = banner.dataset.newsId;
+    const KEY = 'tvbot-dismissed-news-id';
+    if (localStorage.getItem(KEY) === id) {
+      banner.remove();
+      return;
+    }
+    banner.classList.remove('hidden');
+    // local-time formatting for the timestamp
+    const tsEl = banner.querySelector('[data-ts]');
+    if (tsEl) {
+      const ts = parseInt(tsEl.dataset.ts, 10);
+      if (ts) {
+        const d = new Date(ts * 1000);
+        const pad = n => String(n).padStart(2, '0');
+        tsEl.textContent = `${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      }
+    }
+    document.getElementById('news-banner-close').addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      localStorage.setItem(KEY, id);
+      banner.remove();
+    });
+  })();
+</script>
+{{ end }}
+{{ end }}

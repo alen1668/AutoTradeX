@@ -281,6 +281,7 @@ func main() {
 	if err != nil {
 		logger.Fatal().Err(err).Msg("template parse")
 	}
+	renderer = renderer.WithNewsBanner(admin.NewNewsBannerProvider(newsRepo, pool))
 
 	// ── admin handlers ───────────────────────────────────────────────────────
 	statusHandler := admin.NewStatusHandler(renderer, pool, systemRepo, settingsRepo, strategyRepo, posRepo, cfg.BotMode)
