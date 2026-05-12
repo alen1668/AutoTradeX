@@ -247,3 +247,32 @@ func TestSettingsRepo_SetMacroFlags(t *testing.T) {
 	assert.True(t, s.CalendarEnabled)
 	assert.True(t, s.NewsEnabled)
 }
+
+func TestSettingsRepo_PerpMetricsDefaults(t *testing.T) {
+	pool := testPool(t)
+	repo := NewSettingsRepo(pool)
+	s, err := repo.Get(context.Background(), pool)
+	require.NoError(t, err)
+	assert.False(t, s.PerpMetricsEnabled, "default should be false (off)")
+	assert.Equal(t, 30, s.PerpMetricsLookbackMinutes, "default should be 30 minutes")
+}
+
+func TestSettingsRepo_UpdatePerpMetrics(t *testing.T) {
+	pool := testPool(t)
+	repo := NewSettingsRepo(pool)
+	ctx := context.Background()
+	require.NoError(t, repo.UpdatePerpMetrics(ctx, pool, true, 45))
+	s, err := repo.Get(ctx, pool)
+	require.NoError(t, err)
+	assert.True(t, s.PerpMetricsEnabled)
+	assert.Equal(t, 45, s.PerpMetricsLookbackMinutes)
+}
+
+func TestSettingsRepo_SetPerpMetricsEnabled(t *testing.T) {
+	pool := testPool(t)
+	repo := NewSettingsRepo(pool)
+	ctx := context.Background()
+	require.NoError(t, repo.SetPerpMetricsEnabled(ctx, pool, true))
+	s, _ := repo.Get(ctx, pool)
+	assert.True(t, s.PerpMetricsEnabled)
+}

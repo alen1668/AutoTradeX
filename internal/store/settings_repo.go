@@ -47,6 +47,9 @@ type Settings struct {
 	WecomEnabled        bool
 	WecomWebhookURL     string
 	NewsNotifyMinImpact string // none|low|medium|high
+	// Perp metrics worker (binance funding / OI / top L/S ratio per symbol).
+	PerpMetricsEnabled         bool
+	PerpMetricsLookbackMinutes int
 }
 
 type SettingsRepo struct {
@@ -79,7 +82,8 @@ SELECT max_total_leverage, max_daily_loss_usdc,
        regime_enabled, regime_interval_min,
        calendar_enabled,
        news_enabled, news_interval_min, news_api_key, news_llm_model,
-       wecom_enabled, wecom_webhook_url, news_notify_min_impact
+       wecom_enabled, wecom_webhook_url, news_notify_min_impact,
+       perp_metrics_enabled, perp_metrics_lookback_minutes
   FROM system_state WHERE id=1`,
 	).Scan(&maxLev, &maxLoss, &feishuURL, &s.FeishuEnabled, &tgToken, &tgChat, &s.TelegramEnabled,
 		&bnKey, &bnSecret,
@@ -96,6 +100,7 @@ SELECT max_total_leverage, max_daily_loss_usdc,
 		&s.CalendarEnabled,
 		&s.NewsEnabled, &s.NewsIntervalMin, &s.NewsAPIKey, &s.NewsLLMModel,
 		&s.WecomEnabled, &s.WecomWebhookURL, &s.NewsNotifyMinImpact,
+		&s.PerpMetricsEnabled, &s.PerpMetricsLookbackMinutes,
 	)
 	if err != nil {
 		return nil, err
@@ -345,5 +350,25 @@ UPDATE system_state SET
     news_notify_min_impact = $3,
     updated_at=now()
  WHERE id=1`, enabled, webhookURL, newsMinImpact)
+	return err
+}
+
+// UpdatePerpMetrics updates the perp-metrics worker flags.
+func (r *SettingsRepo) UpdatePerpMetrics(ctx context.Context, q Querier,
+	enabled bool, lookbackMinutes int,
+) error {
+	_, err := q.Exec(ctx, `
+UPDATE system_state SET
+    perp_metrics_enabled          = $1,
+    perp_metrics_lookback_minutes = $2,
+    updated_at=now()
+ WHERE id=1`, enabled, lookbackMinutes)
+	return err
+}
+
+// SetPerpMetricsEnabled flips just the perp metrics flag.
+func (r *SettingsRepo) SetPerpMetricsEnabled(ctx context.Context, q Querier, enabled bool) error {
+	_, err := q.Exec(ctx,
+		`UPDATE system_state SET perp_metrics_enabled=$1, updated_at=now() WHERE id=1`, enabled)
 	return err
 }
