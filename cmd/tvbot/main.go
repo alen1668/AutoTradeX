@@ -295,6 +295,12 @@ func main() {
 	evalHandler := admin.NewEvalHandler(renderer, pool).WithStatus(statusHandler).WithBroker(broker)
 	evalNewHandler := admin.NewEvalNewHandler(renderer, pool).WithStatus(statusHandler)
 	settingsHandler := admin.NewSettingsHandler(renderer, pool, settingsRepo, statusHandler)
+	// critiqueRepo and critiqueManualCh are declared here so critiqueHandler
+	// can be constructed before the router block. The worker is started later
+	// (after shutCtx is created) and references these same variables.
+	critiqueRepo := store.NewCritiqueRepo(pool)
+	critiqueManualCh := make(chan struct{}, 4)
+	critiqueHandler := admin.NewCritiqueHandler(renderer, critiqueRepo, critiqueManualCh).WithStatus(statusHandler)
 
 	// ── webhook handler ──────────────────────────────────────────────────────
 	webhookHandler := webhook.NewHandler(ingestSvc, dispatcher, logger)
@@ -379,6 +385,10 @@ func main() {
 			r.Get("/eval/news", evalHandler.NewsList)
 			r.Get("/eval/news/{id}", evalHandler.NewsDetail)
 			r.Get("/eval/perp", evalHandler.PerpList)
+			r.Get("/eval/critique", critiqueHandler.List)
+			r.Get("/eval/critique/{id}", critiqueHandler.Detail)
+			r.Post("/eval/critique/run", critiqueHandler.Run)
+			r.Post("/eval/critique/patterns/{id}/pin", critiqueHandler.SetPin)
 
 			// Settings
 			r.Get("/settings", settingsHandler.Index)
@@ -503,10 +513,9 @@ func main() {
 	// Cron-driven LLM agent that reflects on agent_evaluations + their
 	// outcome labels and proposes structured "误判模式" patterns. Patterns
 	// can be pinned by operators (web /eval/critique) to inject into
-	// scorer prompt. critiqueManualCh is forwarded to the web handler in a
-	// later wireup pass so the "立即重算" button can trigger ad-hoc runs.
-	critiqueRepo := store.NewCritiqueRepo(pool)
-	critiqueManualCh := make(chan struct{}, 4)
+	// scorer prompt. critiqueRepo and critiqueManualCh are declared above
+	// near the handler construction block so they can be passed to the
+	// web handler before the router is built.
 	{
 		critiqueSettings := critique.NewSettingsAdapter(settingsRepo, pool)
 		s, err := critiqueSettings.Read(shutCtx)
@@ -540,7 +549,6 @@ func main() {
 		go critiqueWorker.Start(shutCtx, critiqueManualCh)
 		logger.Info().Bool("enabled", s.Enabled).Msg("critique worker started")
 	}
-	_ = critiqueManualCh // kept for /eval/critique/run handler wired in T19
 
 	// ── Phase 2 replay worker ────────────────────────────────────────────────
 	// Polls replay_runs WHERE status='pending' every 1s. Web form is the only
