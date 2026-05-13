@@ -370,9 +370,117 @@
       </div>
     </div>
 
+    <div class="border rounded p-3 md:col-span-2 mt-4">
+      <h3 class="font-medium mb-2">Exit Agent — 持仓中决策 worker（产生 LLM 调用费 + active 模式动单）</h3>
+      <label class="flex items-center mb-2">
+        <input type="checkbox" name="exit_agent_enabled" {{ if .Settings.ExitAgentEnabled }}checked{{ end }} class="mr-2">
+        <span class="text-sm">启用（开关：勾选后 worker 才会扫开仓持仓发 LLM 决策）</span>
+      </label>
+      <p class="text-xs text-gray-500 mb-3">
+        <b>作用</b>：scorer 只在<b>开仓</b>时打分,持仓中之后到平仓期间,bot 完全靠固定 SL/TP 守。
+        Exit Agent 填这个空白：每 N 分钟扫一次所有 <code>status='open'</code> 的 virtual_position,
+        把当前价 / 持仓时长 / K 线 / 宏观状态 / 历史胜率 / 钉选反思打包给 LLM,让它决定下一步动作。
+        <br>四档动作：
+        <code>hold</code>(继续拿) / <code>tighten_sl</code>(把止损往上挪锁定盈利)
+        / <code>take_partial</code>(平 ≤50% 锁部分利润,剩余继续跑) / <code>exit_now</code>(全平止损)。
+        <br>所有决策落 <code>agent_exit_decisions</code> 表,可在 <a href="/eval/exit" class="text-blue-600 underline">/eval/exit</a> 看,
+        每条决策 60min 后会自动回填"如果当时 hold 会怎样"作为对照。
+        <br>⚠️ 切到 active 之前请在 shadow 至少观察 1-2 周再开,先确认 LLM 决策合理。
+      </p>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <label class="block text-sm font-medium">运行模式</label>
+          <select name="exit_agent_mode" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+            {{ $em := .Settings.ExitAgentMode }}
+            <option value="shadow" {{ if eq $em "shadow" }}selected{{ end }}>shadow — 只写决策表,不动单（默认/推荐起步）</option>
+            <option value="active" {{ if eq $em "active" }}selected{{ end }}>active — 真实改 SL / 部分平仓 / 全平仓</option>
+          </select>
+          <p class="text-xs text-gray-500 mt-1">
+            <b>作用</b>：决定 LLM 输出非 hold 的决策时,是否真的走币安 API。
+            shadow 下完全不调 ExitOrchestrator,只在 DB 里记录"如果是 active 我会做什么";
+            active 下会撤老 SL 单 + 下新单 / 反向市价部分平仓 / 撤所有保护单 + 反向市价全平。
+            出问题立即把这里改回 shadow 即下一 tick 生效回退。
+          </p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium">LLM 模型（留空 = 复用 scorer 模型）</label>
+          <input type="text" name="exit_agent_model" value="{{ .Settings.ExitAgentModel }}" placeholder="留空回退到 agent_scorer_model" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono">
+          <p class="text-xs text-gray-500 mt-1">
+            <b>作用</b>：选哪个模型给 Exit Agent 用。共用 LLM API Key 与 scorer。
+            ⚠️ 模型在 bot 启动时读取并固定,改这里需要重启 bot 才生效。
+            建议留空 = 自动复用 scorer 同模型,逻辑统一。
+          </p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium">扫描周期（分钟）</label>
+          <input type="number" name="exit_agent_scan_interval_min" value="{{ .Settings.ExitAgentScanIntervalMin }}" min="1" max="60" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+          <p class="text-xs text-gray-500 mt-1">
+            <b>作用</b>：worker 每隔多久扫一遍所有 open 持仓做决策。
+            <b>调小</b>(如 1-2)反应快但 LLM 调用费翻倍 + 抖动;
+            <b>调大</b>(如 15-30)成本低但极端行情来不及救。
+            默认 5,1..60。
+          </p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium">最小持仓年龄（秒）</label>
+          <input type="number" name="exit_agent_min_position_age_sec" value="{{ .Settings.ExitAgentMinPositionAgeSec }}" min="0" max="86400" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+          <p class="text-xs text-gray-500 mt-1">
+            <b>作用</b>：持仓年龄小于此值的不参与决策,跳过本轮。
+            目的是防止"开仓→还没成交→Exit Agent 立刻喊平"的抖动。
+            <b>调大</b>给入场策略更多空间(适合趋势策略),<b>调小</b>更快响应(适合短打)。
+            默认 60(秒),0..86400。
+          </p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium">同仓决策冷却（分钟）</label>
+          <input type="number" name="exit_agent_decision_cooldown_min" value="{{ .Settings.ExitAgentDecisionCooldownMin }}" min="0" max="1440" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+          <p class="text-xs text-gray-500 mt-1">
+            <b>作用</b>：同一持仓两次决策之间的最小间隔。
+            目的是防 LLM 在边界附近抖动:这一 tick 喊 tighten_sl,5min 后又喊 hold,反复折腾。
+            <b>调大</b>更稳但响应慢,<b>调小</b>响应快但要小心震荡市的过度交易。
+            默认 15(分钟),0..1440。设 0 = 每 tick 都可决策。
+          </p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium">exit_now 最低 confidence</label>
+          <select name="exit_agent_require_confidence_for_exit" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+            {{ $ec := .Settings.ExitAgentRequireConfidenceForExit }}
+            <option value="high"   {{ if eq $ec "high"   }}selected{{ end }}>high — 仅高置信才允许立刻平仓（推荐）</option>
+            <option value="medium" {{ if eq $ec "medium" }}selected{{ end }}>medium — 中置信也允许</option>
+            <option value="low"    {{ if eq $ec "low"    }}selected{{ end }}>low — 低置信也允许（慎用）</option>
+          </select>
+          <p class="text-xs text-gray-500 mt-1">
+            <b>作用</b>：exit_now 是不可逆的"全部市价平仓"动作,要求 LLM 至少这个 confidence 才会真执行。
+            达不到 → 决策被强制改写为 hold + 标 <code>constraint_violated:confidence_below_threshold</code>,
+            落表保留审计但不动单。tighten_sl / take_partial 不受此限。
+          </p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium">反事实窗口（分钟）</label>
+          <input type="number" name="exit_agent_horizon_min" value="{{ .Settings.ExitAgentHorizonMin }}" min="5" max="1440" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+          <p class="text-xs text-gray-500 mt-1">
+            <b>作用</b>：决策落库 N 分钟后,exit_outcome worker 拉那一刻的 K 线收盘价回填 <code>if_hold_pnl_pct</code>,
+            告诉你"假如当时不动持仓 N 分钟后是赚还是亏"。
+            <b>用途</b>：在 <a href="/eval/exit" class="text-blue-600 underline">/eval/exit</a> 看 LLM 是否系统性地误平 / 漏平。
+            默认 60(分钟,与 entry outcome 一致)。
+          </p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium">单轮最大并发</label>
+          <input type="number" name="exit_agent_max_concurrent" value="{{ .Settings.ExitAgentMaxConcurrent }}" min="1" max="32" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
+          <p class="text-xs text-gray-500 mt-1">
+            <b>作用</b>：单次扫描里同时向 LLM 发起几路 Decide 请求。
+            <b>调大</b>:5 个仓位 4 并发 → 同时进行 LLM 调用,worker 一轮快。
+            <b>调小</b>:更稳,但有 N 个仓位时延迟 ≈ N × 单次 LLM 延迟。
+            默认 4,1..32。LLM 提供商有 rate-limit 时调小。
+          </p>
+        </div>
+      </div>
+    </div>
+
     <p class="text-xs text-gray-500">
       worker 修改 enabled 标记后下一个 tick 生效；间隔修改在下一次 tick 后生效。
-      数据落库：<code>market_regime</code> / <code>economic_events</code> / <code>news_snapshots</code> / <code>perp_metrics</code>。
+      数据落库：<code>market_regime</code> / <code>economic_events</code> / <code>news_snapshots</code> / <code>perp_metrics</code> / <code>agent_exit_decisions</code>。
     </p>
     <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">保存宏观上下文配置</button>
   </form>

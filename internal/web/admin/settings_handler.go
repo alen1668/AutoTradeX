@@ -444,5 +444,57 @@ func (h *SettingsHandler) SaveMacro(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Exit Agent (持仓中决策 worker)
+	exitEnabled := r.FormValue("exit_agent_enabled") == "on"
+	exitMode := strings.TrimSpace(r.FormValue("exit_agent_mode"))
+	if exitMode != "shadow" && exitMode != "active" {
+		http.Error(w, "exit_agent_mode must be one of shadow|active", http.StatusBadRequest)
+		return
+	}
+	exitModel := strings.TrimSpace(r.FormValue("exit_agent_model"))
+	exitScan, err := strconv.Atoi(strings.TrimSpace(r.FormValue("exit_agent_scan_interval_min")))
+	if err != nil || exitScan < 1 || exitScan > 60 {
+		http.Error(w, "exit_agent_scan_interval_min must be 1..60", http.StatusBadRequest)
+		return
+	}
+	exitMinAge, err := strconv.Atoi(strings.TrimSpace(r.FormValue("exit_agent_min_position_age_sec")))
+	if err != nil || exitMinAge < 0 || exitMinAge > 86400 {
+		http.Error(w, "exit_agent_min_position_age_sec must be 0..86400", http.StatusBadRequest)
+		return
+	}
+	exitCooldown, err := strconv.Atoi(strings.TrimSpace(r.FormValue("exit_agent_decision_cooldown_min")))
+	if err != nil || exitCooldown < 0 || exitCooldown > 1440 {
+		http.Error(w, "exit_agent_decision_cooldown_min must be 0..1440", http.StatusBadRequest)
+		return
+	}
+	exitConf := strings.TrimSpace(r.FormValue("exit_agent_require_confidence_for_exit"))
+	switch exitConf {
+	case "high", "medium", "low":
+		// ok
+	case "":
+		exitConf = "high"
+	default:
+		http.Error(w, "exit_agent_require_confidence_for_exit must be one of high|medium|low", http.StatusBadRequest)
+		return
+	}
+	exitHorizon, err := strconv.Atoi(strings.TrimSpace(r.FormValue("exit_agent_horizon_min")))
+	if err != nil || exitHorizon < 5 || exitHorizon > 1440 {
+		http.Error(w, "exit_agent_horizon_min must be 5..1440", http.StatusBadRequest)
+		return
+	}
+	exitMaxConc, err := strconv.Atoi(strings.TrimSpace(r.FormValue("exit_agent_max_concurrent")))
+	if err != nil || exitMaxConc < 1 || exitMaxConc > 32 {
+		http.Error(w, "exit_agent_max_concurrent must be 1..32", http.StatusBadRequest)
+		return
+	}
+	if err := h.repo.UpdateExitAgent(r.Context(), h.pool,
+		exitEnabled, exitMode, exitModel,
+		exitScan, exitMinAge, exitCooldown,
+		exitConf, exitHorizon, exitMaxConc,
+	); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	http.Redirect(w, r, "/settings?saved=1", http.StatusSeeOther)
 }

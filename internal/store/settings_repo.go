@@ -438,6 +438,32 @@ WHERE id=1`, horizonMin, winThresh, lossThresh, batchSize, scanIntervalMin, stal
 	return err
 }
 
+// UpdateExitAgent stores all 9 Exit Agent knobs in one shot. Mirrors
+// UpdateOutcome / UpdateCritique style.
+func (r *SettingsRepo) UpdateExitAgent(ctx context.Context, q Querier,
+	enabled bool, mode, model string,
+	scanIntervalMin, minPositionAgeSec, decisionCooldownMin int,
+	requireConfidenceForExit string,
+	horizonMin, maxConcurrent int,
+) error {
+	_, err := q.Exec(ctx, `
+UPDATE system_state
+SET exit_agent_enabled                     = $1,
+    exit_agent_mode                        = $2,
+    exit_agent_model                       = $3,
+    exit_agent_scan_interval_min           = $4,
+    exit_agent_min_position_age_sec        = $5,
+    exit_agent_decision_cooldown_min       = $6,
+    exit_agent_require_confidence_for_exit = $7,
+    exit_agent_horizon_min                 = $8,
+    exit_agent_max_concurrent              = $9,
+    updated_at                             = now()
+WHERE id=1`, enabled, mode, model,
+		scanIntervalMin, minPositionAgeSec, decisionCooldownMin,
+		requireConfidenceForExit, horizonMin, maxConcurrent)
+	return err
+}
+
 // UpdateCritique stores all critique-agent knobs in one shot.
 func (r *SettingsRepo) UpdateCritique(ctx context.Context, q Querier,
 	enabled bool, model string,
