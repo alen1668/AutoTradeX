@@ -447,11 +447,19 @@ func main() {
 		go calendarWorker.Start(shutCtx)
 	}
 	if dbSettings.NewsLLMModel != "" {
-		// Source default: CoinDesk RSS (free, no API key required).
-		// CryptoPanic free Developer plan was discontinued 2026-04-01; the
-		// CryptoPanicFetcher impl is kept in the package for users who want
-		// to subscribe to a paid plan and override the source.
-		newsFetcher := news.NewCoinDeskRSSFetcher(news.DefaultCoinDeskRSSURL)
+		// Multi-source RSS aggregation: 加密原生 (CoinDesk) + 宏观财经
+		// (MarketWatch / CNBC / Yahoo Finance)。任一源失败不阻塞其它源,
+		// 让 LLM 看到跨市场信号 (e.g. ETF 撤资、CPI、央行行动)。
+		// CryptoPanic 已停止免费版 (2026-04-01),保留 cryptopanic.go 给付费用户。
+		newsFetcher := news.NewMultiFetcher(
+			[]news.Fetcher{
+				news.NewRSSFetcher("coindesk", news.DefaultCoinDeskRSSURL, "CoinDesk"),
+				news.NewRSSFetcher("marketwatch", news.DefaultMarketWatchRSSURL, "MarketWatch"),
+				news.NewRSSFetcher("cnbc", news.DefaultCNBCMarketsRSSURL, "CNBC"),
+				news.NewRSSFetcher("yahoo", news.DefaultYahooFinanceRSSURL, "Yahoo Finance"),
+			},
+			logger.With().Str("c", "news_multi").Logger(),
+		)
 		newsClassifier := news.NewClassifier(llmClient, dbSettings.NewsLLMModel,
 			logger.With().Str("c", "news_llm").Logger())
 		newsPersistor := news.NewStoreAdapter(newsRepoAdapter{repo: newsRepo, pool: pool})

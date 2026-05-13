@@ -103,10 +103,15 @@ func (f *RSSFetcher) Fetch(ctx context.Context, topN int) ([]Headline, error) {
 	return out, nil
 }
 
-// parseRFC1123 accepts the RSS standard layout. Returns zero time on failure;
-// callers shouldn't drop the headline just because the timestamp is unparsed.
+// parseRFC1123 accepts the RSS 2.0 standard layout 和 ISO 8601(Yahoo Finance 用)。
+// Returns zero time on failure; callers shouldn't drop the headline just because
+// the timestamp is unparsed.
 func parseRFC1123(s string) time.Time {
-	for _, layout := range []string{time.RFC1123Z, time.RFC1123, time.RFC822Z, time.RFC822} {
+	for _, layout := range []string{
+		time.RFC1123Z, time.RFC1123,
+		time.RFC822Z, time.RFC822,
+		time.RFC3339, time.RFC3339Nano, // Yahoo Finance: 2026-05-12T02:33:00Z
+	} {
 		if t, err := time.Parse(layout, s); err == nil {
 			return t.UTC()
 		}

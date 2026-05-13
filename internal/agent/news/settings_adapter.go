@@ -19,7 +19,8 @@ type SettingsAdapter struct {
 }
 
 func NewSettingsAdapter(repo SettingsRepoLike, pool *pgxpool.Pool) *SettingsAdapter {
-	return &SettingsAdapter{repo: repo, pool: pool, topN: 5}
+	// topN=12: 多源聚合后给 LLM 留足够覆盖面 (4 源 × 6/源 → 去重后 ~12-18 条 → 截 12)
+	return &SettingsAdapter{repo: repo, pool: pool, topN: 12}
 }
 
 func (a *SettingsAdapter) Read(ctx context.Context) (WorkerSettings, error) {

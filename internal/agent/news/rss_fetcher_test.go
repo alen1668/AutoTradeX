@@ -67,6 +67,40 @@ func TestRSSFetcher_TopNTruncates(t *testing.T) {
 	}
 }
 
+// Yahoo Finance RSS 用 ISO 8601 而非 RFC1123Z; 不支持会导致 PublishedAt 零值
+// 进而被 MultiFetcher 排序裁掉。
+const yahooSampleRSS = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>BofA drops blunt warning about Fed rate cuts</title>
+      <link>https://example.com/yh/bofa-fed</link>
+      <pubDate>2026-05-12T02:33:00Z</pubDate>
+    </item>
+  </channel>
+</rss>`
+
+func TestRSSFetcher_ParsesISO8601PubDate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(yahooSampleRSS))
+	}))
+	defer srv.Close()
+	f := NewRSSFetcher("yahoo", srv.URL, "Yahoo Finance").WithHTTPClient(srv.Client())
+	hs, err := f.Fetch(context.Background(), 5)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if len(hs) != 1 {
+		t.Fatalf("want 1 headline, got %d", len(hs))
+	}
+	if hs[0].PublishedAt.IsZero() {
+		t.Errorf("ISO 8601 pubDate unparsed (zero time) — Yahoo headlines will be sorted to bottom")
+	}
+	if hs[0].PublishedAt.Year() != 2026 {
+		t.Errorf("pubdate year: %v", hs[0].PublishedAt)
+	}
+}
+
 func TestRSSFetcher_HTTPErrorIncludesName(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "down", http.StatusServiceUnavailable)

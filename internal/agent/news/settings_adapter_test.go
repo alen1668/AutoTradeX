@@ -21,7 +21,7 @@ func TestNewsSettingsAdapter_ReadProjects(t *testing.T) {
 	repo := &fakeSettingsRepo{s: &store.Settings{NewsEnabled: true, NewsIntervalMin: 7}}
 	a := NewSettingsAdapter(repo, nil)
 	got, _ := a.Read(context.Background())
-	if !got.Enabled || got.IntervalMin != 7 || got.TopN != 5 {
+	if !got.Enabled || got.IntervalMin != 7 || got.TopN != 12 {
 		t.Errorf("got %+v", got)
 	}
 }
