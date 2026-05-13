@@ -11,6 +11,7 @@ import (
 
 	"github.com/lizhaojie/tvbot/internal/agent/exit"
 	"github.com/lizhaojie/tvbot/internal/agent/market"
+	"github.com/lizhaojie/tvbot/internal/application/trade"
 	"github.com/lizhaojie/tvbot/internal/eval/outcome"
 	"github.com/lizhaojie/tvbot/internal/store"
 )
@@ -125,20 +126,60 @@ func (a exitPinnedProvider) List(ctx context.Context, limit int) ([]exit.PinnedP
 	return out, nil
 }
 
-// noopExitExecutor refuses every action. Task 15 swaps this with the
-// real trade.ExitOrchestrator binding. As long as exit_agent_mode=shadow
-// the worker never calls Executor; this no-op only exists so the type
-// system is satisfied.
-type noopExitExecutor struct{}
+// vpExitAdapter satisfies trade.ExitVPRepo using *store.VirtualPositionRepo
+// + the shared pool. Translates the rich VirtualPositionRow into the slim
+// ExitPositionView the orchestrator needs.
+type vpExitAdapter struct {
+	repo *store.VirtualPositionRepo
+	pool *pgxpool.Pool
+}
 
-func (noopExitExecutor) TightenSL(_ context.Context, _ int64, _ decimal.Decimal) error {
-	return fmt.Errorf("exit: no orchestrator wired yet (shadow only)")
+func (a vpExitAdapter) GetByIDForExit(ctx context.Context, id int64) (trade.ExitPositionView, error) {
+	row, err := a.repo.GetByID(ctx, a.pool, id)
+	if err != nil {
+		return trade.ExitPositionView{}, err
+	}
+	if row == nil {
+		return trade.ExitPositionView{}, trade.ErrPositionNotFound
+	}
+	return trade.ExitPositionView{
+		ID:                row.ID,
+		StrategyID:        row.StrategyID,
+		Symbol:            row.Symbol,
+		Side:              row.Side,
+		Qty:               row.Qty,
+		StopOrderID:       row.StopOrderID,
+		BackupStopOrderID: row.BackupStopOrderID,
+		TakeProfitOrderID: row.TakeProfitOrderID,
+		Status:            row.Status,
+	}, nil
 }
-func (noopExitExecutor) TakePartial(_ context.Context, _ int64, _ decimal.Decimal) error {
-	return fmt.Errorf("exit: no orchestrator wired yet (shadow only)")
+
+// orderExitAdapter satisfies trade.ExitOrderRepo using *store.OrderRepo +
+// the shared pool. StopPriceByID isn't on OrderRepo so we hit SQL directly.
+type orderExitAdapter struct {
+	repo *store.OrderRepo
+	pool *pgxpool.Pool
 }
-func (noopExitExecutor) ExitNow(_ context.Context, _ int64) error {
-	return fmt.Errorf("exit: no orchestrator wired yet (shadow only)")
+
+func (a orderExitAdapter) GetClientOrderIDByID(ctx context.Context, id int64) (string, error) {
+	return a.repo.GetClientOrderIDByID(ctx, a.pool, id)
+}
+
+func (a orderExitAdapter) UpdateStatus(ctx context.Context, id int64, status string) error {
+	return a.repo.UpdateStatus(ctx, a.pool, id, status)
+}
+
+func (a orderExitAdapter) StopPriceByID(ctx context.Context, id int64) (decimal.Decimal, error) {
+	var stop *decimal.Decimal
+	err := a.pool.QueryRow(ctx, `SELECT stop_price FROM orders WHERE id=$1`, id).Scan(&stop)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	if stop == nil {
+		return decimal.Zero, nil
+	}
+	return *stop, nil
 }
 
 // exitRecorderAdapter satisfies exit.ExecutionRecorder via ExitDecisionRepo.

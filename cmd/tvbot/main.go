@@ -601,6 +601,11 @@ func main() {
 			exitModel = dbSettings.ExitAgentModel
 		}
 		exitAgent := exit.NewAgent(llmClient, exitModel)
+		exitOrchestrator := trade.NewExitOrchestrator(
+			pool, trader,
+			vpExitAdapter{repo: posRepo, pool: pool},
+			orderExitAdapter{repo: orderRepo, pool: pool},
+		)
 		exitWorker := exit.NewWorker(exit.WorkerDeps{
 			Reader:   exitPosReader,
 			Ctx:      exitCtx,
@@ -608,7 +613,7 @@ func main() {
 			Store:    exitStore,
 			Settings: exitSettings,
 			Cooldown: exit.NewRepoCooldownReader(exitDecRepo),
-			Executor: noopExitExecutor{}, // Task 15 swaps with trade.ExitOrchestrator
+			Executor: exitOrchestrator,
 			Recorder: exitRecorderAdapter{repo: exitDecRepo},
 			Log:      logger.With().Str("c", "exit").Logger(),
 		})
