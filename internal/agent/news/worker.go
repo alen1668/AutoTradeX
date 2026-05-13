@@ -174,16 +174,12 @@ func (w *Worker) maybeNotify(ctx context.Context, snapshotID int64, c Classifica
 		return
 	}
 	title, severity := newsTitle(c.Impact, c.Direction)
+	// 通知保持精简: 仅 title (含方向 emoji) + body (LLM summary)。
+	// 不带 snapshot_id / 模型 / 标题数 / 详情链接等调试字段(用户反馈这些是噪音)。
 	msg := notify.Message{
 		Title:    title,
 		Body:     c.Summary,
 		Severity: severity,
-		Fields: map[string]any{
-			"snapshot_id": snapshotID,
-			"模型":          c.LLMModel,
-			"标题数":         len(c.PerHeadline),
-			"详情":          "/eval/news/" + itoa(snapshotID),
-		},
 	}
 	if err := w.notifier.Send(ctx, msg); err != nil {
 		w.log.Warn().Err(err).Msg("news notifier send failed")
@@ -242,31 +238,6 @@ func newsTitle(impact, direction string) (string, notify.Severity) {
 		return "ℹ️ 一般动态｜加密新闻", sev
 	}
 	return "📰 加密新闻", sev
-}
-
-func itoa(n int64) string {
-	// Avoid pulling strconv just for one int64; the worker file already has
-	// strings imported and Sprintf is overkill.
-	const digits = "0123456789"
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = digits[n%10]
-		n /= 10
-	}
-	if neg {
-		i--
-		buf[i] = '-'
-	}
-	return string(buf[i:])
 }
 
 func (w *Worker) publishNewsAlert(id int64, impact string, t time.Time) {
