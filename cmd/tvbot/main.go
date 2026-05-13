@@ -17,6 +17,7 @@ import (
 
 	"github.com/lizhaojie/tvbot/internal/agent/calendar"
 	"github.com/lizhaojie/tvbot/internal/agent/critique"
+	"github.com/lizhaojie/tvbot/internal/agent/exit"
 	"github.com/lizhaojie/tvbot/internal/agent/history"
 	"github.com/lizhaojie/tvbot/internal/agent/macrocontext"
 	"github.com/lizhaojie/tvbot/internal/agent/market"
@@ -565,6 +566,55 @@ func main() {
 		)
 		go critiqueWorker.Start(shutCtx, critiqueManualCh)
 		logger.Info().Bool("enabled", s.Enabled).Msg("critique worker started")
+	}
+
+	// ── Exit Agent (持仓生命周期决策, shadow mode by default) ──────────────
+	// Periodic LLM-driven decisions over open virtual_positions. Failures
+	// here MUST NOT impact the main trade pipeline; the dual SL on Binance
+	// is the last-line safety net. Default settings.exit_agent_enabled=false
+	// so the worker spins idle until a human flips it on. Default
+	// settings.exit_agent_mode='shadow' so even when enabled it only writes
+	// agent_exit_decisions rows without touching positions.
+	{
+		exitDecRepo := store.NewExitDecisionRepo(pool)
+		exitSettings := exit.NewSettingsAdapter(settingsRepo, pool)
+		exitStore := exit.NewPGStore(exitDecRepo)
+		exitPosReader := exit.NewDBOpenPositionsReader(pool, posRepo, exitPriceProvider{p: marketProv})
+		exitCtx := exit.NewDefaultContextProvider(
+			exitKlineProvider{p: marketProv},
+			macroReader,
+			exitHistoricalProvider{pool: pool},
+			exitPinnedProvider{repo: critiqueRepo},
+			5,
+		)
+		// Resolve model up-front; SettingsAdapter applies the same fallback
+		// at every Read() so the worker's first cfg read also picks the
+		// correct model — but Agent itself stores model immutably. We
+		// snapshot the *current* model so log/audit references stay stable
+		// across config changes; cfg.Model in worker.processOne uses the
+		// fresh value too (in DecisionMeta).
+		exitModel := dbSettings.AgentScorerModel
+		if dbSettings.ExitAgentModel != "" {
+			exitModel = dbSettings.ExitAgentModel
+		}
+		exitAgent := exit.NewAgent(llmClient, exitModel)
+		exitWorker := exit.NewWorker(exit.WorkerDeps{
+			Reader:   exitPosReader,
+			Ctx:      exitCtx,
+			Decider:  exitAgent,
+			Store:    exitStore,
+			Settings: exitSettings,
+			Cooldown: exit.NewRepoCooldownReader(exitDecRepo),
+			Executor: noopExitExecutor{}, // Task 15 swaps with trade.ExitOrchestrator
+			Recorder: exitRecorderAdapter{repo: exitDecRepo},
+			Log:      logger.With().Str("c", "exit").Logger(),
+		})
+		go exitWorker.Start(shutCtx)
+		logger.Info().
+			Bool("enabled", dbSettings.ExitAgentEnabled).
+			Str("mode", dbSettings.ExitAgentMode).
+			Str("model", exitModel).
+			Msg("exit worker started")
 	}
 
 	// ── Phase 2 replay worker ────────────────────────────────────────────────
