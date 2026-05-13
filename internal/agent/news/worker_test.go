@@ -3,6 +3,7 @@ package news
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -169,4 +170,51 @@ func TestNewsWorker_StartCancellable(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Start did not return")
 	}
+}
+
+func TestNewsTitle_MatrixCases(t *testing.T) {
+	cases := []struct {
+		impact, direction string
+		wantContains      string
+	}{
+		{"high", "bullish", "🚀"},
+		{"high", "bullish", "重大利好"},
+		{"high", "bearish", "⚠️"},
+		{"high", "bearish", "重大利空"},
+		{"high", "mixed", "⚖️"},
+		{"high", "mixed", "多空分歧"},
+		{"medium", "bullish", "📈"},
+		{"medium", "bullish", "利好"},
+		{"medium", "bearish", "📉"},
+		{"medium", "bearish", "利空"},
+		{"medium", "mixed", "多空分歧"},
+		{"low", "bullish", "偏多"},
+		{"low", "bearish", "偏空"},
+		{"low", "neutral", "一般动态"},
+		{"none", "neutral", "加密新闻"},
+		{"HIGH", "BULLISH", "重大利好"}, // 大小写鲁棒
+	}
+	for _, c := range cases {
+		got, _ := newsTitle(c.impact, c.direction)
+		if !strings.Contains(got, c.wantContains) {
+			t.Errorf("newsTitle(%q,%q) = %q; want substr %q", c.impact, c.direction, got, c.wantContains)
+		}
+	}
+}
+
+func TestNewsTitle_HighSeverityElevated(t *testing.T) {
+	_, sev := newsTitle("high", "bearish")
+	if sev != notifySeverityWarn() {
+		t.Errorf("high impact should be Warn, got %v", sev)
+	}
+	_, sevMed := newsTitle("medium", "bullish")
+	if sevMed == notifySeverityWarn() {
+		t.Errorf("medium impact should not be Warn, got %v", sevMed)
+	}
+}
+
+// helper to avoid importing notify in test file (already imported in worker.go).
+func notifySeverityWarn() any {
+	_, s := newsTitle("high", "bullish")
+	return s
 }

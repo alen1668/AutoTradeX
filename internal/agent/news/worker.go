@@ -173,12 +173,9 @@ func (w *Worker) maybeNotify(ctx context.Context, snapshotID int64, c Classifica
 	if impactRank(c.Impact) < threshold {
 		return
 	}
-	severity := notify.SeverityInfo
-	if c.Impact == "high" {
-		severity = notify.SeverityWarn
-	}
+	title, severity := newsTitle(c.Impact, c.Direction)
 	msg := notify.Message{
-		Title:    "📰 加密新闻 — impact " + strings.ToUpper(c.Impact),
+		Title:    title,
 		Body:     c.Summary,
 		Severity: severity,
 		Fields: map[string]any{
@@ -191,6 +188,60 @@ func (w *Worker) maybeNotify(ctx context.Context, snapshotID int64, c Classifica
 	if err := w.notifier.Send(ctx, msg); err != nil {
 		w.log.Warn().Err(err).Msg("news notifier send failed")
 	}
+}
+
+// newsTitle 把 (impact, direction) 二维渲染成醒目的中文标题 + 严重级。
+// 设计目标:用户在飞书/Telegram 一眼看出"利好/利空 + 重要程度",不需要看正文。
+//
+//	高 利好 → 🚀🟢🟢🟢 重大利好｜加密新闻
+//	高 利空 → ⚠️🔴🔴🔴 重大利空｜加密新闻
+//	中 利好 → 📈🟢🟢 利好｜加密新闻
+//	中 利空 → 📉🔴🔴 利空｜加密新闻
+//	中 分歧 → ⚖️🟠🟠 多空分歧｜加密新闻
+//	低 利好 → 🟢 偏多｜加密新闻
+//	低 利空 → 🔴 偏空｜加密新闻
+//	其它   → ℹ️ 信息性｜加密新闻
+//
+// 高 impact 默认 SeverityWarn (飞书会用红色卡片 / Telegram 用警报样式)。
+func newsTitle(impact, direction string) (string, notify.Severity) {
+	imp := strings.ToLower(strings.TrimSpace(impact))
+	dir := strings.ToLower(strings.TrimSpace(direction))
+	sev := notify.SeverityInfo
+	if imp == "high" {
+		sev = notify.SeverityWarn
+	}
+
+	switch imp {
+	case "high":
+		switch dir {
+		case "bullish":
+			return "🚀🟢🟢🟢 重大利好｜加密新闻", sev
+		case "bearish":
+			return "⚠️🔴🔴🔴 重大利空｜加密新闻", sev
+		case "mixed":
+			return "⚖️🟠🟠🟠 重大事件 · 多空分歧｜加密新闻", sev
+		}
+		return "❗ 重大事件 · 信息性｜加密新闻", sev
+	case "medium":
+		switch dir {
+		case "bullish":
+			return "📈🟢🟢 利好｜加密新闻", sev
+		case "bearish":
+			return "📉🔴🔴 利空｜加密新闻", sev
+		case "mixed":
+			return "⚖️🟠 多空分歧｜加密新闻", sev
+		}
+		return "ℹ️ 信息性更新｜加密新闻", sev
+	case "low":
+		switch dir {
+		case "bullish":
+			return "🟢 偏多｜加密新闻", sev
+		case "bearish":
+			return "🔴 偏空｜加密新闻", sev
+		}
+		return "ℹ️ 一般动态｜加密新闻", sev
+	}
+	return "📰 加密新闻", sev
 }
 
 func itoa(n int64) string {
