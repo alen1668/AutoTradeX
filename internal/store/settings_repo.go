@@ -68,6 +68,16 @@ type Settings struct {
 	// Controls which patterns critique.Agent auto-pins right after the
 	// LLM writes them. "off" preserves the original "human in loop" model.
 	CritiqueAutoPinConfidence string
+	// Exit Agent (agent/exit package).
+	ExitAgentEnabled                  bool
+	ExitAgentMode                     string
+	ExitAgentModel                    string
+	ExitAgentScanIntervalMin          int
+	ExitAgentMinPositionAgeSec        int
+	ExitAgentDecisionCooldownMin      int
+	ExitAgentRequireConfidenceForExit string
+	ExitAgentHorizonMin               int
+	ExitAgentMaxConcurrent            int
 }
 
 type SettingsRepo struct {
@@ -106,7 +116,11 @@ SELECT max_total_leverage, max_daily_loss_usdc,
        outcome_batch_size, outcome_scan_interval_min, outcome_stale_cutoff_h,
        critique_enabled, critique_model, critique_window_days,
        critique_min_sample, critique_max_pinned, critique_cron_utc,
-       critique_auto_pin_confidence
+       critique_auto_pin_confidence,
+       exit_agent_enabled, exit_agent_mode, exit_agent_model,
+       exit_agent_scan_interval_min, exit_agent_min_position_age_sec,
+       exit_agent_decision_cooldown_min, exit_agent_require_confidence_for_exit,
+       exit_agent_horizon_min, exit_agent_max_concurrent
   FROM system_state WHERE id=1`,
 	).Scan(&maxLev, &maxLoss, &feishuURL, &s.FeishuEnabled, &tgToken, &tgChat, &s.TelegramEnabled,
 		&bnKey, &bnSecret,
@@ -129,6 +143,10 @@ SELECT max_total_leverage, max_daily_loss_usdc,
 		&s.CritiqueEnabled, &s.CritiqueModel, &s.CritiqueWindowDays,
 		&s.CritiqueMinSample, &s.CritiqueMaxPinned, &s.CritiqueCronUTC,
 		&s.CritiqueAutoPinConfidence,
+		&s.ExitAgentEnabled, &s.ExitAgentMode, &s.ExitAgentModel,
+		&s.ExitAgentScanIntervalMin, &s.ExitAgentMinPositionAgeSec,
+		&s.ExitAgentDecisionCooldownMin, &s.ExitAgentRequireConfidenceForExit,
+		&s.ExitAgentHorizonMin, &s.ExitAgentMaxConcurrent,
 	)
 	if err != nil {
 		return nil, err

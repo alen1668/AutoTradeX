@@ -84,6 +84,8 @@ func applyMigrations(t *testing.T, p *pgxpool.Pool) {
 		"../../migrations/0013_agent_evaluation_outcome.sql",
 		"../../migrations/0014_outcome_settings.sql",
 		"../../migrations/0015_agent_critiques.sql",
+		"../../migrations/0016_critique_auto_pin.sql",
+		"../../migrations/0017_agent_exit_decisions.sql",
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
