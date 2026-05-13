@@ -149,9 +149,11 @@ func (c *Classifier) Classify(ctx context.Context, headlines []Headline) (Classi
 
 	start := time.Now()
 	resp, err := c.llm.Complete(ctx, scorer.CompleteRequest{
-		Model:     c.model,
-		Prompt:    promptText,
-		MaxTokens: 1024,
+		Model:  c.model,
+		Prompt: promptText,
+		// MaxTokens 估算: 12 条 per_headline × ~120 token + reasoning 500 字 ≈ 600
+		// token + summary 200 字 ≈ 250 token + 框架 ~50 = ~2350。留余量到 3000。
+		MaxTokens: 3000,
 	})
 	latency := int(time.Since(start).Milliseconds())
 	out := Classification{
