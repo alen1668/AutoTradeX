@@ -11,6 +11,7 @@ import (
 
 	"github.com/lizhaojie/tvbot/internal/agent/exit"
 	"github.com/lizhaojie/tvbot/internal/agent/market"
+	"github.com/lizhaojie/tvbot/internal/eval/outcome"
 	"github.com/lizhaojie/tvbot/internal/store"
 )
 
@@ -145,4 +146,42 @@ type exitRecorderAdapter struct{ repo *store.ExitDecisionRepo }
 
 func (a exitRecorderAdapter) SetExecution(ctx context.Context, decisionID int64, executedAt *time.Time, status string, errMsg string) error {
 	return a.repo.SetExecution(ctx, decisionID, executedAt, status, errMsg)
+}
+
+// exitDecisionPendingAdapter projects store.ExitDecisionRow into the slim
+// outcome.ExitDecisionForOutcome view used by ExitOutcomeWorker.
+//
+// V1: ActualPnLPct is always nil — the realised PnL lookup for active
+// non-hold decisions is left for a follow-up spec. shadow mode and hold
+// actions naturally have no actual baseline; ComputeIfHold treats nil
+// ActualPnLPct as "no comparable baseline → leave Label nil", which is
+// the correct semantic for V1 across the board.
+type exitDecisionPendingAdapter struct{ repo *store.ExitDecisionRepo }
+
+func (a exitDecisionPendingAdapter) ListPending(ctx context.Context, olderThan time.Time, limit int) ([]outcome.ExitDecisionForOutcome, error) {
+	rows, err := a.repo.PendingOutcome(ctx, olderThan, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]outcome.ExitDecisionForOutcome, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, outcome.ExitDecisionForOutcome{
+			ID:           r.ID,
+			Symbol:       r.Symbol,
+			Side:         r.Side,
+			EntryPrice:   r.EntryFillPrice,
+			Action:       r.Action,
+			Mode:         r.Mode,
+			DecisionTime: r.CreatedAt,
+			ActualPnLPct: nil,
+		})
+	}
+	return out, nil
+}
+
+// exitDecisionWriterAdapter is outcome.ExitOutcomeWriter via ExitDecisionRepo.
+type exitDecisionWriterAdapter struct{ repo *store.ExitDecisionRepo }
+
+func (a exitDecisionWriterAdapter) SetIfHoldOutcome(ctx context.Context, id int64, horizonMin int, pct *decimal.Decimal, label *string) error {
+	return a.repo.SetIfHoldOutcome(ctx, id, horizonMin, pct, label)
 }

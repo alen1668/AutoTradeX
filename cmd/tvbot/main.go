@@ -615,6 +615,22 @@ func main() {
 			Str("mode", dbSettings.ExitAgentMode).
 			Str("model", exitModel).
 			Msg("exit worker started")
+
+		// ── if-hold counterfact backfiller for agent_exit_decisions ────
+		// Reuses the existing live-binance kline adapter (same one used
+		// by the entry-side outcome backfiller). Runs every 5 min.
+		// V1 simplification: ActualPnLPct is always nil — see
+		// exitDecisionPendingAdapter doc.
+		exitOutcomeWorker := outcome.NewExitOutcomeWorker(
+			exitDecisionPendingAdapter{repo: exitDecRepo},
+			outcomeKlineAdapter{client: newLivePerpClient()},
+			exitDecisionWriterAdapter{repo: exitDecRepo},
+			dbSettings.ExitAgentHorizonMin,
+			24,
+			logger.With().Str("c", "exit_outcome").Logger(),
+		)
+		go exitOutcomeWorker.Start(shutCtx, 5*time.Minute)
+		logger.Info().Int("horizon_min", dbSettings.ExitAgentHorizonMin).Msg("exit outcome worker started")
 	}
 
 	// ── Phase 2 replay worker ────────────────────────────────────────────────
