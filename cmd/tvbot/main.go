@@ -306,6 +306,7 @@ func main() {
 	// inject pinned critique patterns. critiqueManualCh triggers manual runs.
 	critiqueManualCh := make(chan struct{}, 4)
 	critiqueHandler := admin.NewCritiqueHandler(renderer, critiqueRepo, critiqueManualCh).WithStatus(statusHandler)
+	exitHandler := admin.NewExitHandler(renderer, store.NewExitDecisionRepo(pool)).WithStatus(statusHandler)
 	postmortemHandler := admin.NewPostmortemHandler(renderer, pool).WithStatus(statusHandler)
 
 	// ── webhook handler ──────────────────────────────────────────────────────
@@ -396,6 +397,8 @@ func main() {
 			r.Post("/eval/critique/run", critiqueHandler.Run)
 			r.Post("/eval/critique/patterns/{id}/pin", critiqueHandler.SetPin)
 			r.Post("/eval/critique/{id}/bulk-pin", critiqueHandler.BulkPin)
+			r.Get("/eval/exit", exitHandler.List)
+			r.Get("/eval/exit/{id}", exitHandler.Detail)
 			r.Get("/eval/postmortem", postmortemHandler.View)
 			r.Get("/eval/postmortem/details", postmortemHandler.Details)
 
