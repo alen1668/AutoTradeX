@@ -8,29 +8,33 @@
 {{ end }}
 
 <div class="bg-yellow-50 border-l-4 border-yellow-500 p-3 text-sm mb-6">
-  风控阈值、IP 白名单、Webhook Secret 修改即时生效。<br>
-  通知配置（飞书/Telegram）、币安 API Key、Reconciler 周期、Binance 超时参数修改后需要<strong>重启 bot</strong> 才会启用。
+  风控阈值、IP 白名单、Webhook Secret 修改即时生效。
+  通知配置(飞书/Telegram)、币安 API Key、Reconciler 周期、Binance 超时参数修改后需要<strong>重启 bot</strong> 才会启用。
 </div>
 
 <div class="bg-white shadow rounded p-6 mb-6">
-  <h2 class="text-lg font-semibold mb-4">风控阈值（实时生效）</h2>
+  <h2 class="text-lg font-semibold mb-4">风控阈值(实时生效)</h2>
   <form method="POST" action="/settings/risk" class="space-y-4 max-w-xl">
     <div>
-      <label class="block text-sm font-medium">全局总杠杆上限</label>
+      <label class="block text-sm font-medium">
+        全局总杠杆上限
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">所有活跃仓位金额之和 ÷ 账户余额不得超过此值。<br>例 <code>3.0</code> 表示 3 倍。</span></span>
+      </label>
       <input type="text" name="max_total_leverage" value="{{ .Settings.MaxTotalLeverage }}" required class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
-      <p class="text-xs text-gray-500 mt-1">所有活跃仓位金额之和 ÷ 账户余额不得超过此值。例 3.0 表示 3 倍。</p>
     </div>
     <div>
-      <label class="block text-sm font-medium">日亏熔断阈值 ($)</label>
+      <label class="block text-sm font-medium">
+        日亏熔断阈值 ($)
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">当日累计亏损超过此值时触发熔断,所有新开仓信号被拒绝(平仓信号仍允许)。</span></span>
+      </label>
       <input type="text" name="max_daily_loss_usdc" value="{{ .Settings.MaxDailyLossUSDC }}" required class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
-      <p class="text-xs text-gray-500 mt-1">当日累计亏损超过此值时触发熔断，所有新开仓信号被拒绝（平仓信号仍允许）。</p>
     </div>
     <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">保存风控配置</button>
   </form>
 </div>
 
 <div class="bg-white shadow rounded p-6 mb-6">
-  <h2 class="text-lg font-semibold mb-4">通知配置（修改后需重启）</h2>
+  <h2 class="text-lg font-semibold mb-4">通知配置(修改后需重启)</h2>
   <form method="POST" action="/settings/notifier" class="space-y-4 max-w-xl">
     <fieldset class="border rounded p-4">
       <legend class="px-2 font-medium">飞书</legend>
@@ -40,7 +44,7 @@
           <span class="ml-2">启用</span>
         </label>
         <div>
-          <label class="block text-sm font-medium">Webhook URL</label>
+          <label class="block text-sm font-medium">Webhook 地址</label>
           <input type="text" name="feishu_webhook_url" value="{{ .Settings.FeishuURL }}" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..." class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
         </div>
       </div>
@@ -67,31 +71,31 @@
 </div>
 
 <div class="bg-white shadow rounded p-6 mb-6">
-  <h2 class="text-lg font-semibold mb-4">币安 API（修改后需重启）</h2>
-  <p class="text-xs text-gray-500 mb-4">
-    调用 Binance USDT-M 永续合约 API 必需。testnet / live 两种模式都需要（key 是分开签发的，不能混用）。
-    建议账号开启 IP 白名单 + 仅授交易权限不授提币权限。
-  </p>
+  <h2 class="text-lg font-semibold mb-4">
+    币安 API(修改后需重启)
+    <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">调用 Binance USDT-M 永续合约 API 必需。<br>测试网 / 实盘两种模式都需要(key 分开签发,不能混用)。<br>建议账号开启 IP 白名单 + 仅授交易权限不授提币权限。</span></span>
+  </h2>
   <form method="POST" action="/settings/binance" class="space-y-4 max-w-xl">
     <div>
       <label class="block text-sm font-medium">API Key</label>
       <input type="text" name="binance_api_key" value="{{ .Settings.BinanceAPIKey }}" placeholder="..." class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono text-sm">
     </div>
     <div>
-      <label class="block text-sm font-medium">API Secret</label>
+      <label class="block text-sm font-medium">
+        API Secret
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">已保存的 secret 不会回显明文(留空保留原值)。</span></span>
+      </label>
       <input type="password" name="binance_api_secret" value="{{ .Settings.BinanceAPISecret }}" placeholder="..." class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono text-sm">
-      <p class="text-xs text-gray-500 mt-1">已保存的 secret 不会回显在此处的明文中（出于安全考虑可选实现：留空表示不修改，保留原值）</p>
     </div>
     <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">保存币安配置</button>
   </form>
 </div>
 
 <div class="bg-white shadow rounded p-6 mb-6">
-  <h2 class="text-lg font-semibold mb-4">IP 白名单（实时生效）</h2>
-  <p class="text-xs text-gray-500 mb-4">
-    限制 /webhook/tv 来源 IP。每行一个 IP 或 CIDR。留空则不做限制（开发模式）。<br>
-    TradingView 官方 IP 段：52.89.214.238、34.212.75.30、54.218.53.128、52.32.178.7
-  </p>
+  <h2 class="text-lg font-semibold mb-4">
+    IP 白名单(实时生效)
+    <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">限制 <code>/webhook/tv</code> 的来源 IP。每行一个 IP 或 CIDR。留空 = 不做限制(开发模式)。<br>TradingView 官方 IP 段:<br><code>52.89.214.238</code><br><code>34.212.75.30</code><br><code>54.218.53.128</code><br><code>52.32.178.7</code></span></span>
+  </h2>
   <form method="POST" action="/settings/ip-whitelist" class="space-y-4 max-w-xl">
     <textarea name="entries" rows="8" class="w-full rounded border border-gray-300 px-3 py-2 font-mono text-sm" placeholder="52.89.214.238&#10;10.0.0.0/8&#10;127.0.0.1">{{ range .Settings.IPWhitelist }}{{ . }}&#10;{{ end }}</textarea>
     <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">保存白名单</button>
@@ -99,24 +103,34 @@
 </div>
 
 <div class="bg-white shadow rounded p-6 mb-6">
-  <h2 class="text-lg font-semibold mb-4">高级配置（修改后需重启，Webhook Secret 实时生效）</h2>
+  <h2 class="text-lg font-semibold mb-4">高级配置(修改后需重启,Webhook Secret 实时生效)</h2>
   <form method="POST" action="/settings/advanced" class="space-y-4 max-w-xl">
     <div>
-      <label class="block text-sm font-medium">Webhook Secret（实时生效；留空保留原值）</label>
+      <label class="block text-sm font-medium">
+        Webhook Secret
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">TradingView Alert payload 中 secret 字段必须匹配此值。<br>实时生效,留空保留原值。<br>当前已设置:{{ if .Settings.WebhookSecret }}是{{ else }}否{{ end }}</span></span>
+      </label>
       <input type="password" name="webhook_secret" value="" placeholder="••••••••" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono text-sm">
-      <p class="text-xs text-gray-500 mt-1">TradingView Alert payload 中 secret 字段必须匹配此值。当前已设置：{{ if .Settings.WebhookSecret }}是{{ else }}否{{ end }}</p>
     </div>
     <div>
-      <label class="block text-sm font-medium">Reconciler 周期（秒，需重启）</label>
+      <label class="block text-sm font-medium">
+        对账周期(秒,需重启)
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">Reconciler 后台周期 — 用于对账订单状态。建议 <code>30</code> 秒。</span></span>
+      </label>
       <input type="number" name="reconciler_interval_seconds" value="{{ .Settings.ReconcilerIntervalSeconds }}" min="5" max="3600" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
-      <p class="text-xs text-gray-500 mt-1">订单状态对账后台周期。建议 30 秒。</p>
     </div>
     <div>
-      <label class="block text-sm font-medium">Binance recv_window (ms，需重启）</label>
+      <label class="block text-sm font-medium">
+        Binance recv_window (ms,需重启)
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">币安签名时间窗,默认 5000 ms。网络抖动时调大;一般不需要改。</span></span>
+      </label>
       <input type="number" name="binance_recv_window_ms" value="{{ .Settings.BinanceRecvWindowMs }}" min="1000" max="60000" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
     </div>
     <div>
-      <label class="block text-sm font-medium">Binance 下单超时 (ms，需重启）</label>
+      <label class="block text-sm font-medium">
+        Binance 下单超时 (ms,需重启)
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">单次下单调用 HTTP 超时。建议 5000-10000 ms。</span></span>
+      </label>
       <input type="number" name="binance_order_timeout_ms" value="{{ .Settings.BinanceOrderTimeoutMs }}" min="500" max="30000" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
     </div>
     <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">保存高级配置</button>
@@ -124,17 +138,19 @@
 </div>
 
 <div class="bg-white shadow rounded p-6 mb-6">
-  <h2 class="text-lg font-semibold mb-2">AI 评分（实时生效）</h2>
-  <p class="text-xs text-red-600 mb-4">
-    ⚠️ 调用 LLM API 时，信号内容（策略、币种、历史交易、当前仓位、市场数据）会发送给所选 provider。请确认数据合规性。
-    启停开关在 <a class="underline" href="/system">/system</a> 页（启用前必须先在此处配置 LLM API key）。
-  </p>
+  <h2 class="text-lg font-semibold mb-2">
+    AI 评分(实时生效)
+    <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">⚠️ 调用 LLM API 时,信号内容(策略、币种、历史交易、当前仓位、市场数据)会发送给所选 provider。请确认数据合规性。<br>启停开关在 <a href="/system">/system</a> 页(启用前必须先在此处配置 LLM API key)。</span></span>
+  </h2>
 
   <form method="POST" action="/settings/agent-scorer" class="space-y-4 max-w-xl">
     <h3 class="font-medium">评分参数</h3>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div>
-        <label class="block text-sm font-medium">模型</label>
+        <label class="block text-sm font-medium">
+          模型
+          <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">选哪个 LLM 模型给 scorer 用,共用上方"LLM API Key"。</span></span>
+        </label>
         <select name="model" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono text-sm">
           {{ range .Models }}
           <option value="{{ .ID }}" {{ if eq $.Settings.AgentScorerModel .ID }}selected{{ end }}>{{ .Label }} ({{ .ID }})</option>
@@ -142,27 +158,42 @@
         </select>
       </div>
       <div>
-        <label class="block text-sm font-medium">阈值（0-100，分数低于阈值则拒）</label>
+        <label class="block text-sm font-medium">
+          通过阈值(0-100)
+          <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">分数低于阈值则拒单。一般 60-70 较常用。</span></span>
+        </label>
         <input name="threshold" type="number" min="0" max="100" value="{{ .Settings.AgentScorerThreshold }}" class="mt-1 w-full rounded border border-gray-300 px-3 py-2" />
       </div>
       <div>
-        <label class="block text-sm font-medium">超时（ms）</label>
+        <label class="block text-sm font-medium">
+          超时(ms)
+          <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">单次 LLM 调用最大等待。超时按"失败模式"处理(放行或拒单)。</span></span>
+        </label>
         <input name="timeout_ms" type="number" min="500" max="60000" value="{{ .Settings.AgentScorerTimeoutMs }}" class="mt-1 w-full rounded border border-gray-300 px-3 py-2" />
       </div>
       <div>
-        <label class="block text-sm font-medium">历史回溯笔数</label>
+        <label class="block text-sm font-medium">
+          历史回溯笔数
+          <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">scorer prompt 里携带的最近 N 笔成交历史,供 LLM 评估手感。</span></span>
+        </label>
         <input name="history_limit" type="number" min="1" max="100" value="{{ .Settings.AgentScorerHistoryLimit }}" class="mt-1 w-full rounded border border-gray-300 px-3 py-2" />
       </div>
       <div>
-        <label class="block text-sm font-medium">失败模式</label>
+        <label class="block text-sm font-medium">
+          失败模式
+          <span class="tip"><span class="tip-mark">?</span><span class="tip-panel"><b>open</b> = LLM 故障时放行下单(可用性优先);<br><b>closed</b> = LLM 故障时拒单(安全优先)。</span></span>
+        </label>
         <select name="fail_mode" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
-          <option value="open" {{ if eq .Settings.AgentScorerFailMode "open" }}selected{{ end }}>open（LLM 失败 → 放行）</option>
-          <option value="closed" {{ if eq .Settings.AgentScorerFailMode "closed" }}selected{{ end }}>closed（LLM 失败 → 拒单）</option>
+          <option value="open" {{ if eq .Settings.AgentScorerFailMode "open" }}selected{{ end }}>open(LLM 失败 → 放行)</option>
+          <option value="closed" {{ if eq .Settings.AgentScorerFailMode "closed" }}selected{{ end }}>closed(LLM 失败 → 拒单)</option>
         </select>
       </div>
       <div class="flex items-center mt-6">
         <input id="dry_run" type="checkbox" name="dry_run" {{ if .Settings.AgentScorerDryRun }}checked{{ end }} class="mr-2" />
-        <label for="dry_run" class="text-sm">dry_run 观察模式（仅记录，不影响下单）</label>
+        <label for="dry_run" class="text-sm">
+          仅观察模式(dry_run)
+          <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">勾上后 scorer 仅记录评分,不影响实际下单。开关 LLM 上线前的灰度阶段用。</span></span>
+        </label>
       </div>
     </div>
     <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">保存评分参数</button>
@@ -180,11 +211,17 @@
         </select>
       </div>
       <div>
-        <label class="block text-sm font-medium">Base URL（空=默认）</label>
+        <label class="block text-sm font-medium">
+          Base URL
+          <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">留空 = 用 provider 默认地址 (<code>https://api.anthropic.com</code>)。走代理时填代理地址。</span></span>
+        </label>
         <input name="base_url" value="{{ .Settings.LLMAPIBaseURL }}" placeholder="https://api.anthropic.com" class="mt-1 w-full rounded border border-gray-300 px-3 py-2" />
       </div>
       <div class="md:col-span-2">
-        <label class="block text-sm font-medium">API Key（留空保留旧值）</label>
+        <label class="block text-sm font-medium">
+          API Key
+          <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">留空 = 保留旧值。scorer 与所有 LLM worker(News/Critique/Exit Agent)共用这一把 key。</span></span>
+        </label>
         <input name="api_key" type="password" placeholder="{{ if .Settings.LLMAPIKey }}••• 已配置 •••{{ else }}sk-... 未配置{{ end }}" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono" />
       </div>
     </div>
@@ -193,314 +230,297 @@
 </div>
 
 <div class="bg-white shadow rounded p-6 mb-6">
-  <h2 class="text-lg font-semibold mb-4">宏观上下文 — Regime / Calendar / News</h2>
-  <p class="text-sm text-gray-600 mb-4">
-    三个独立后台 worker，<strong>仅作为 scorer 的 prompt 上下文输入</strong>，不会改变阈值或硬风控。
-    任一失败均 fail-open。启用 News 需先配置上方"LLM API Key"。
-  </p>
+  <h2 class="text-lg font-semibold mb-4">
+    宏观上下文 worker
+    <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">Regime / Calendar / News 三个独立后台 worker,<b>仅作为 scorer 的 prompt 上下文输入</b>,不会改变阈值或硬风控。<br>任一失败均 fail-open。启用 News 需先配置上方 LLM API Key。</span></span>
+  </h2>
   <form method="POST" action="/settings/macro" class="space-y-4 max-w-2xl">
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div class="border rounded p-3">
-        <h3 class="font-medium mb-2">Regime worker</h3>
+        <h3 class="font-medium mb-2">
+          市场环境 worker (Regime)
+          <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">定期计算 BTC 大盘 regime(趋势 / 震荡 / 高波动等),供 scorer 参考。</span></span>
+        </h3>
         <label class="flex items-center mb-2">
           <input type="checkbox" name="regime_enabled" {{ if .Settings.RegimeEnabled }}checked{{ end }} class="mr-2">
-          <span class="text-sm">启用（每 N 分钟计算 BTC 大盘 regime）</span>
+          <span class="text-sm">启用</span>
         </label>
-        <label class="block text-sm font-medium">间隔（分钟）</label>
+        <label class="block text-sm font-medium">间隔(分钟)</label>
         <input type="number" name="regime_interval_min" value="{{ .Settings.RegimeIntervalMin }}" min="5" max="240" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
       </div>
       <div class="border rounded p-3">
-        <h3 class="font-medium mb-2">Calendar worker</h3>
+        <h3 class="font-medium mb-2">
+          财经日历 worker (Calendar)
+          <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">每 24 小时抓 Forex Factory 日历,关心 USD 高重要性事件 + 全球性事件。无需配置 key。</span></span>
+        </h3>
         <label class="flex items-center mb-2">
           <input type="checkbox" name="calendar_enabled" {{ if .Settings.CalendarEnabled }}checked{{ end }} class="mr-2">
-          <span class="text-sm">启用（每 24h 抓 Forex Factory）</span>
+          <span class="text-sm">启用</span>
         </label>
-        <p class="text-xs text-gray-500 mt-1">无需配置，只关心 USD 高重要性事件 + 全球性事件。</p>
       </div>
       <div class="border rounded p-3 md:col-span-2">
-        <h3 class="font-medium mb-2">News worker（产生 LLM 调用费）</h3>
+        <h3 class="font-medium mb-2">
+          新闻 worker (News)
+          <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">每 N 分钟拉 CoinDesk RSS,LLM 解读后写入 news_snapshots。<b>会产生 LLM 调用费</b>。<br>当前状态:{{ if .Settings.LLMAPIKey }}LLM Key ✅ 已配置{{ else }}LLM Key ❌ 未配置(请先到上方"LLM API"区块填写){{ end }}</span></span>
+        </h3>
         <label class="flex items-center mb-2">
           <input type="checkbox" name="news_enabled" {{ if .Settings.NewsEnabled }}checked{{ end }} class="mr-2">
-          <span class="text-sm">启用（每 N 分钟拉 CryptoPanic + LLM 解读）</span>
+          <span class="text-sm">启用</span>
         </label>
-
-        <div class="bg-blue-50 border border-blue-200 rounded p-3 mb-3 text-xs space-y-2">
-          <p class="font-semibold text-blue-900">📌 News worker 数据源 + LLM Key</p>
-          <div>
-            <p class="font-medium">数据源：CoinDesk RSS（默认）</p>
-            <p class="ml-2 mt-1 text-gray-700">
-              完全免费，无需 API key。CryptoPanic 免费 Developer 计划 2026-04-01 已下线，
-              因此默认改用 CoinDesk RSS。下方的"CryptoPanic API Key"字段保留备用——
-              如未来订阅 CryptoPanic 付费计划，填进去后改 main.go 的 Fetcher 即可切换。
-            </p>
-          </div>
-          <div>
-            <p class="font-medium">必填：LLM API Key（在上方"LLM API"区块配置）</p>
-            <p class="ml-2 mt-1 text-gray-700">
-              News worker 复用 scorer 同一把 Anthropic key。当前状态：
-              {{ if .Settings.LLMAPIKey }}<span class="text-green-700 font-semibold">✅ 已配置</span>{{ else }}<span class="text-red-700 font-semibold">❌ 未配置（请先到上方"LLM API"区块填写）</span>{{ end }}
-            </p>
-          </div>
-          <p class="text-gray-600">启用 News 时会前置校验 LLM Key，未填会被拒绝。</p>
-        </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div>
-            <label class="block text-sm font-medium">间隔（分钟）</label>
+            <label class="block text-sm font-medium">
+              间隔(分钟)
+              <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">默认 15,建议 ≥ 5。调小费用翻倍。</span></span>
+            </label>
             <input type="number" name="news_interval_min" value="{{ .Settings.NewsIntervalMin }}" min="5" max="60" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
-            <p class="text-xs text-gray-500 mt-1">默认 15，建议 ≥ 5。</p>
           </div>
           <div>
-            <label class="block text-sm font-medium">CryptoPanic API Key（可选 / 备用）</label>
-            <input type="text" name="news_api_key" value="{{ .Settings.NewsAPIKey }}" placeholder="（默认走 CoinDesk RSS，可留空）" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono">
-            <p class="text-xs text-gray-500 mt-1">默认数据源是 CoinDesk RSS（免费）。此处保留以便未来切换付费源。</p>
+            <label class="block text-sm font-medium">
+              CryptoPanic API Key
+              <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">默认走 CoinDesk RSS(免费,无需 key)。CryptoPanic 免费 Developer 计划 2026-04-01 已下线,留此字段以便未来切换到付费源。</span></span>
+            </label>
+            <input type="text" name="news_api_key" value="{{ .Settings.NewsAPIKey }}" placeholder="(默认走 CoinDesk RSS,可留空)" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono">
           </div>
           <div>
-            <label class="block text-sm font-medium">LLM 模型</label>
+            <label class="block text-sm font-medium">
+              LLM 模型
+              <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">推荐 <code>claude-haiku-4-5-20251001</code>(便宜)。</span></span>
+            </label>
             <input type="text" name="news_llm_model" value="{{ .Settings.NewsLLMModel }}" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono">
-            <p class="text-xs text-gray-500 mt-1">推荐 <code>claude-haiku-4-5-20251001</code>（便宜）。</p>
           </div>
         </div>
       </div>
     </div>
     <div class="border rounded p-3 md:col-span-2 mt-4">
-      <h3 class="font-medium mb-2">Perp Metrics worker — 永续合约指标</h3>
+      <h3 class="font-medium mb-2">
+        永续合约指标 worker (Perp Metrics)
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">每 5min 抓 funding rate / open interest / top L/S ratio 入库。worker 周期固定 5min。<br>覆盖 symbol = 所有 enabled strategy 的 symbol ∪ BTCUSDT。<br>数据落库:<code>perp_metrics</code>。</span></span>
+      </h3>
       <label class="flex items-center mb-2">
         <input type="checkbox" name="perp_metrics_enabled" {{ if .Settings.PerpMetricsEnabled }}checked{{ end }} class="mr-2">
-        <span class="text-sm">启用（每 5min 抓 funding rate / open interest / top L/S ratio 入库）</span>
+        <span class="text-sm">启用</span>
       </label>
-      <label class="block text-sm font-medium mt-2">scorer 接受的最大数据陈旧度（分钟）</label>
+      <label class="block text-sm font-medium mt-2">
+        scorer 接受的最大数据陈旧度(分钟)
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">超过此分钟数的快照视为不可用,scorer prompt 写"永续指标暂不可用"。</span></span>
+      </label>
       <input type="number" name="perp_metrics_lookback_minutes" value="{{ .Settings.PerpMetricsLookbackMinutes }}" min="5" max="120" class="mt-1 w-full md:w-48 rounded border border-gray-300 px-3 py-2">
-      <p class="text-xs text-gray-500 mt-1">
-        超过此分钟数的快照视为不可用，scorer prompt 写"永续指标暂不可用"。worker 周期固定 5min。
-        数据落库：<code>perp_metrics</code>。覆盖 symbol = 所有 enabled strategy 的 symbol ∪ BTCUSDT。
-      </p>
     </div>
     <div class="border rounded p-3 md:col-span-2 mt-4">
-      <h3 class="font-medium mb-2">Outcome 标签 worker — agent_evaluations.outcome_*</h3>
-      <p class="text-xs text-gray-500 mb-3">
-        给每条 scorer 评估打 win/loss/flat 事后标签。approve 路径用 <code>position_history.pnl_usdc</code>；
-        abandon 路径用 horizon 分钟后的反事实币价。纯计算，不调 LLM。
-      </p>
+      <h3 class="font-medium mb-2">
+        Outcome 标签 worker
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">给每条 scorer 评估打 win/loss/flat 事后标签。<br>approve 路径用 <code>position_history.pnl_usdc</code>;abandon 路径用 horizon 分钟后的反事实币价。<br>纯计算,不调 LLM。</span></span>
+      </h3>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div>
-          <label class="block text-sm font-medium">反事实持有期（分钟）</label>
+          <label class="block text-sm font-medium">
+            反事实持有期(分钟)
+            <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">abandon 路径用此时长之后的币价做反事实评估。5..1440,默认 60。</span></span>
+          </label>
           <input type="number" name="outcome_horizon_min" value="{{ .Settings.OutcomeHorizonMin }}" min="5" max="1440" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
-          <p class="text-xs text-gray-500 mt-1">5..1440。默认 60。</p>
         </div>
         <div>
-          <label class="block text-sm font-medium">扫描周期（分钟）</label>
+          <label class="block text-sm font-medium">
+            扫描周期(分钟)
+            <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">worker 每隔多久扫一遍待打标行。1..60,默认 5。</span></span>
+          </label>
           <input type="number" name="outcome_scan_interval_min" value="{{ .Settings.OutcomeScanIntervalMin }}" min="1" max="60" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
-          <p class="text-xs text-gray-500 mt-1">1..60。默认 5。</p>
         </div>
         <div>
-          <label class="block text-sm font-medium">单批扫描行数</label>
+          <label class="block text-sm font-medium">
+            单批扫描行数
+            <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">单次 tick 最多处理多少条。10..2000,默认 200。</span></span>
+          </label>
           <input type="number" name="outcome_batch_size" value="{{ .Settings.OutcomeBatchSize }}" min="10" max="2000" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
-          <p class="text-xs text-gray-500 mt-1">10..2000。默认 200。</p>
         </div>
         <div>
-          <label class="block text-sm font-medium">win 阈值 (%)</label>
+          <label class="block text-sm font-medium">
+            win 阈值 (%)
+            <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">小数表示。<code>0.003</code> = +0.3%。默认 <code>0.003</code>。</span></span>
+          </label>
           <input type="text" name="outcome_win_threshold_pct" value="{{ .Settings.OutcomeWinThresholdPct }}" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono">
-          <p class="text-xs text-gray-500 mt-1">小数表示，0.003 = +0.3%。默认 0.003。</p>
         </div>
         <div>
-          <label class="block text-sm font-medium">loss 阈值 (%)</label>
+          <label class="block text-sm font-medium">
+            loss 阈值 (%)
+            <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">小数表示。<code>-0.003</code> = -0.3%。默认 <code>-0.003</code>。</span></span>
+          </label>
           <input type="text" name="outcome_loss_threshold_pct" value="{{ .Settings.OutcomeLossThresholdPct }}" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono">
-          <p class="text-xs text-gray-500 mt-1">-0.003 = -0.3%。默认 -0.003。</p>
         </div>
         <div>
-          <label class="block text-sm font-medium">无数据兜底时长（小时）</label>
+          <label class="block text-sm font-medium">
+            无数据兜底时长(小时)
+            <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">超过此时长仍无反事实价 → 标 unavailable。默认 24,1..168。</span></span>
+          </label>
           <input type="number" name="outcome_stale_cutoff_h" value="{{ .Settings.OutcomeStaleCutoffH }}" min="1" max="168" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
-          <p class="text-xs text-gray-500 mt-1">超过此时长仍无反事实价 → 标 unavailable。默认 24。</p>
         </div>
       </div>
     </div>
 
     <div class="border rounded p-3 md:col-span-2 mt-4">
-      <h3 class="font-medium mb-2">Critique 自省 worker — Agent 周期复盘（产生 LLM 调用费）</h3>
+      <h3 class="font-medium mb-2">
+        Critique 自省 worker
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">每日 cron + UI 手动触发。<br>喂最近 N 天带 outcome 标签的 evaluations 给 LLM,输出结构化的"误判模式"。<br>操作员在 <a href="/eval/critique">/eval/critique</a> 钉选 pattern 后会注入 scorer prompt。<br><b>会产生 LLM 调用费</b>。</span></span>
+      </h3>
       <label class="flex items-center mb-2">
         <input type="checkbox" name="critique_enabled" {{ if .Settings.CritiqueEnabled }}checked{{ end }} class="mr-2">
-        <span class="text-sm">启用（每日 cron + UI 手动触发）</span>
+        <span class="text-sm">启用</span>
       </label>
-      <p class="text-xs text-gray-500 mb-3">
-        喂最近 N 天带 outcome 标签的 evaluations 给 LLM，输出结构化的"误判模式"。
-        操作员在 <a href="/eval/critique" class="text-blue-600 underline">/eval/critique</a> 钉选 pattern 后会注入 scorer prompt。
-      </p>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div>
-          <label class="block text-sm font-medium">LLM 模型（留空 = 复用 scorer 模型）</label>
+          <label class="block text-sm font-medium">
+            LLM 模型(留空 = 复用 scorer 模型)
+            <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">复用 LLM API Key。复盘任务建议用更便宜 / 上下文更长的型号。</span></span>
+          </label>
           <input type="text" name="critique_model" value="{{ .Settings.CritiqueModel }}" placeholder="留空回退到 agent_scorer_model" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono">
-          <p class="text-xs text-gray-500 mt-1">复用 LLM API Key。复盘任务建议用更便宜 / 上下文更长的型号。</p>
         </div>
         <div>
-          <label class="block text-sm font-medium">反思窗口（天）</label>
+          <label class="block text-sm font-medium">
+            反思窗口(天)
+            <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">回看最近多少天的评估数据。1..90,默认 7。</span></span>
+          </label>
           <input type="number" name="critique_window_days" value="{{ .Settings.CritiqueWindowDays }}" min="1" max="90" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
-          <p class="text-xs text-gray-500 mt-1">1..90。默认 7。</p>
         </div>
         <div>
-          <label class="block text-sm font-medium">最小样本量</label>
+          <label class="block text-sm font-medium">
+            最小样本量
+            <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">不够则跳过 LLM 调用,落 <code>insufficient_sample</code> 占位。默认 20。</span></span>
+          </label>
           <input type="number" name="critique_min_sample" value="{{ .Settings.CritiqueMinSample }}" min="1" max="10000" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
-          <p class="text-xs text-gray-500 mt-1">不够则跳过 LLM 调用，落 insufficient_sample 占位。默认 20。</p>
         </div>
         <div>
-          <label class="block text-sm font-medium">scorer 注入上限</label>
+          <label class="block text-sm font-medium">
+            scorer 注入上限
+            <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">scorer prompt 最多注入多少个 pinned pattern。默认 5;设 0 = 完全不注入。</span></span>
+          </label>
           <input type="number" name="critique_max_pinned" value="{{ .Settings.CritiqueMaxPinned }}" min="0" max="50" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
-          <p class="text-xs text-gray-500 mt-1">scorer prompt 最多注入多少个 pinned pattern。默认 5；设 0 = 完全不注入。</p>
         </div>
         <div class="md:col-span-2">
-          <label class="block text-sm font-medium">cron 表达式（UTC，仅支持 <code>M H * * *</code> 形式）</label>
+          <label class="block text-sm font-medium">
+            cron 表达式 (UTC)
+            <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">仅支持 <code>M H * * *</code> 形式。默认 <code>0 4 * * *</code>(每日 04:00 UTC)。</span></span>
+          </label>
           <input type="text" name="critique_cron_utc" value="{{ .Settings.CritiqueCronUTC }}" placeholder="0 4 * * *" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono">
-          <p class="text-xs text-gray-500 mt-1">默认 <code>0 4 * * *</code>（每日 04:00 UTC）。</p>
         </div>
         <div class="md:col-span-2">
-          <label class="block text-sm font-medium">自动钉选哪类置信度</label>
+          <label class="block text-sm font-medium">
+            自动钉选哪类置信度
+            <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">critique LLM 写入后立即按选项自动钉选对应置信度的 patterns(标记 <code>pinned_by=auto</code>)。<br>被钉选的会立即生效到下一次 scorer 评分。<br>手动钉选/取消优先级与自动一致;操作员可在 <a href="/eval/critique">/eval/critique</a> 随时调整。</span></span>
+          </label>
           <select name="critique_auto_pin_confidence" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
             {{ $cur := .Settings.CritiqueAutoPinConfidence }}
-            <option value="off"    {{ if eq $cur "off"    }}selected{{ end }}>off — 不自动钉选（最保守，纯人工审核）</option>
+            <option value="off"    {{ if eq $cur "off"    }}selected{{ end }}>off — 不自动钉选(最保守,纯人工审核)</option>
             <option value="high"   {{ if eq $cur "high"   }}selected{{ end }}>high — 仅自动钉「高置信」(默认推荐)</option>
             <option value="medium" {{ if eq $cur "medium" }}selected{{ end }}>medium — 自动钉「高+中置信」</option>
-            <option value="low"    {{ if eq $cur "low"    }}selected{{ end }}>low — 仅钉「低置信」（罕用）</option>
+            <option value="low"    {{ if eq $cur "low"    }}selected{{ end }}>low — 仅钉「低置信」(罕用)</option>
             <option value="all"    {{ if eq $cur "all"    }}selected{{ end }}>all — 全部自动钉</option>
           </select>
-          <p class="text-xs text-gray-500 mt-1">
-            critique LLM 写入后立即按选项自动钉选对应置信度的 patterns（标记 <code>pinned_by=auto</code>）。
-            被钉选的会立即生效到下一次 scorer 评分。手动钉选/取消的优先级与自动一致；操作员可在 <a href="/eval/critique" class="text-blue-600 underline">/eval/critique</a> 随时调整。
-          </p>
         </div>
       </div>
     </div>
 
     <div class="border rounded p-3 md:col-span-2 mt-4">
-      <h3 class="font-medium mb-2">Exit Agent — 持仓中决策 worker（产生 LLM 调用费 + active 模式动单）</h3>
+      <h3 class="font-medium mb-2">
+        Exit Agent — 持仓中决策 worker
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel"><b>作用</b>:scorer 只在开仓时打分,持仓中之后到平仓期间,bot 完全靠固定 SL/TP 守。Exit Agent 填这个空白 — 每 N 分钟扫一次所有 <code>status='open'</code> 的 virtual_position,把当前价 / 持仓时长 / K 线 / 宏观状态 / 历史胜率 / 钉选反思打包给 LLM,让它决定下一步动作。<br><br>四档动作:<br>• <b>继续拿 (hold)</b>:继续持有<br>• <b>上移止损 (tighten_sl)</b>:把止损往上挪锁定盈利<br>• <b>部分止盈 (take_partial)</b>:平 ≤50% 锁部分利润,剩余继续跑<br>• <b>立即平仓 (exit_now)</b>:全平止损<br><br>所有决策落 <code>agent_exit_decisions</code> 表,可在 <a href="/eval/exit">/eval/exit</a> 看,每条决策 60min 后自动回填"如果当时 hold 会怎样"作为对照。<br><br>⚠️ 切到 active 之前请在 shadow 至少观察 1-2 周再开,先确认 LLM 决策合理。<br><br><b>会产生 LLM 调用费 + active 模式真实动单。</b></span></span>
+      </h3>
       <label class="flex items-center mb-2">
         <input type="checkbox" name="exit_agent_enabled" {{ if .Settings.ExitAgentEnabled }}checked{{ end }} class="mr-2">
-        <span class="text-sm">启用（开关：勾选后 worker 才会扫开仓持仓发 LLM 决策）</span>
+        <span class="text-sm">启用</span>
       </label>
-      <p class="text-xs text-gray-500 mb-3">
-        <b>作用</b>：scorer 只在<b>开仓</b>时打分,持仓中之后到平仓期间,bot 完全靠固定 SL/TP 守。
-        Exit Agent 填这个空白：每 N 分钟扫一次所有 <code>status='open'</code> 的 virtual_position,
-        把当前价 / 持仓时长 / K 线 / 宏观状态 / 历史胜率 / 钉选反思打包给 LLM,让它决定下一步动作。
-        <br>四档动作：
-        <code>hold</code>(继续拿) / <code>tighten_sl</code>(把止损往上挪锁定盈利)
-        / <code>take_partial</code>(平 ≤50% 锁部分利润,剩余继续跑) / <code>exit_now</code>(全平止损)。
-        <br>所有决策落 <code>agent_exit_decisions</code> 表,可在 <a href="/eval/exit" class="text-blue-600 underline">/eval/exit</a> 看,
-        每条决策 60min 后会自动回填"如果当时 hold 会怎样"作为对照。
-        <br>⚠️ 切到 active 之前请在 shadow 至少观察 1-2 周再开,先确认 LLM 决策合理。
-      </p>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div>
-          <label class="block text-sm font-medium">运行模式</label>
+          <label class="block text-sm font-medium">
+            运行模式
+            <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">决定 LLM 输出非 hold 决策时,是否真的走币安 API。<br><br><b>shadow</b>(影子):完全不调 ExitOrchestrator,只在 DB 里记录"如果是 active 我会做什么"。<br><b>active</b>(实盘):撤老 SL 单 + 下新单 / 反向市价部分平仓 / 撤所有保护单 + 反向市价全平。<br><br>出问题立即改回 shadow,下一 tick 生效回退。</span></span>
+          </label>
           <select name="exit_agent_mode" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
             {{ $em := .Settings.ExitAgentMode }}
-            <option value="shadow" {{ if eq $em "shadow" }}selected{{ end }}>shadow — 只写决策表,不动单（默认/推荐起步）</option>
-            <option value="active" {{ if eq $em "active" }}selected{{ end }}>active — 真实改 SL / 部分平仓 / 全平仓</option>
+            <option value="shadow" {{ if eq $em "shadow" }}selected{{ end }}>shadow — 影子(只写决策表不动单,默认推荐起步)</option>
+            <option value="active" {{ if eq $em "active" }}selected{{ end }}>active — 实盘(真实改 SL / 部分平 / 全平)</option>
           </select>
-          <p class="text-xs text-gray-500 mt-1">
-            <b>作用</b>：决定 LLM 输出非 hold 的决策时,是否真的走币安 API。
-            shadow 下完全不调 ExitOrchestrator,只在 DB 里记录"如果是 active 我会做什么";
-            active 下会撤老 SL 单 + 下新单 / 反向市价部分平仓 / 撤所有保护单 + 反向市价全平。
-            出问题立即把这里改回 shadow 即下一 tick 生效回退。
-          </p>
         </div>
         <div>
-          <label class="block text-sm font-medium">LLM 模型（留空 = 复用 scorer 模型）</label>
+          <label class="block text-sm font-medium">
+            LLM 模型(留空 = 复用 scorer 模型)
+            <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">选哪个模型给 Exit Agent 用。共用 LLM API Key 与 scorer。<br>⚠️ 模型在 bot 启动时读取并固定,改这里需要重启 bot 才生效。<br>建议留空 = 自动复用 scorer 同模型,逻辑统一。</span></span>
+          </label>
           <input type="text" name="exit_agent_model" value="{{ .Settings.ExitAgentModel }}" placeholder="留空回退到 agent_scorer_model" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono">
-          <p class="text-xs text-gray-500 mt-1">
-            <b>作用</b>：选哪个模型给 Exit Agent 用。共用 LLM API Key 与 scorer。
-            ⚠️ 模型在 bot 启动时读取并固定,改这里需要重启 bot 才生效。
-            建议留空 = 自动复用 scorer 同模型,逻辑统一。
-          </p>
         </div>
         <div>
-          <label class="block text-sm font-medium">扫描周期（分钟）</label>
+          <label class="block text-sm font-medium">
+            扫描周期(分钟)
+            <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">worker 每隔多久扫一遍所有 open 持仓做决策。<br><b>调小</b>(1-2):反应快但 LLM 调用费翻倍 + 抖动。<br><b>调大</b>(15-30):成本低但极端行情来不及救。<br>默认 5,1..60。</span></span>
+          </label>
           <input type="number" name="exit_agent_scan_interval_min" value="{{ .Settings.ExitAgentScanIntervalMin }}" min="1" max="60" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
-          <p class="text-xs text-gray-500 mt-1">
-            <b>作用</b>：worker 每隔多久扫一遍所有 open 持仓做决策。
-            <b>调小</b>(如 1-2)反应快但 LLM 调用费翻倍 + 抖动;
-            <b>调大</b>(如 15-30)成本低但极端行情来不及救。
-            默认 5,1..60。
-          </p>
         </div>
         <div>
-          <label class="block text-sm font-medium">最小持仓年龄（秒）</label>
+          <label class="block text-sm font-medium">
+            最小持仓年龄(秒)
+            <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">持仓年龄小于此值的不参与决策,跳过本轮。<br>目的是防止"开仓→还没成交→Exit Agent 立刻喊平"的抖动。<br><b>调大</b>给入场策略更多空间(适合趋势策略),<b>调小</b>更快响应(适合短打)。<br>默认 60,0..86400。</span></span>
+          </label>
           <input type="number" name="exit_agent_min_position_age_sec" value="{{ .Settings.ExitAgentMinPositionAgeSec }}" min="0" max="86400" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
-          <p class="text-xs text-gray-500 mt-1">
-            <b>作用</b>：持仓年龄小于此值的不参与决策,跳过本轮。
-            目的是防止"开仓→还没成交→Exit Agent 立刻喊平"的抖动。
-            <b>调大</b>给入场策略更多空间(适合趋势策略),<b>调小</b>更快响应(适合短打)。
-            默认 60(秒),0..86400。
-          </p>
         </div>
         <div>
-          <label class="block text-sm font-medium">同仓决策冷却（分钟）</label>
+          <label class="block text-sm font-medium">
+            同仓决策冷却(分钟)
+            <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">同一持仓两次决策之间的最小间隔。<br>防 LLM 在边界附近抖动:这一 tick 喊 tighten_sl,5min 后又喊 hold,反复折腾。<br><b>调大</b>更稳但响应慢,<b>调小</b>响应快但要小心震荡市的过度交易。<br>默认 15,0..1440。设 0 = 每 tick 都可决策。</span></span>
+          </label>
           <input type="number" name="exit_agent_decision_cooldown_min" value="{{ .Settings.ExitAgentDecisionCooldownMin }}" min="0" max="1440" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
-          <p class="text-xs text-gray-500 mt-1">
-            <b>作用</b>：同一持仓两次决策之间的最小间隔。
-            目的是防 LLM 在边界附近抖动:这一 tick 喊 tighten_sl,5min 后又喊 hold,反复折腾。
-            <b>调大</b>更稳但响应慢,<b>调小</b>响应快但要小心震荡市的过度交易。
-            默认 15(分钟),0..1440。设 0 = 每 tick 都可决策。
-          </p>
         </div>
         <div>
-          <label class="block text-sm font-medium">exit_now 最低 confidence</label>
+          <label class="block text-sm font-medium">
+            立即平仓最低置信度
+            <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">exit_now 是不可逆的"全部市价平仓"动作,要求 LLM 至少这个置信度才会真执行。<br>达不到 → 决策被强制改写为 hold + 标 <code>constraint_violated:confidence_below_threshold</code>,落表保留审计但不动单。<br>tighten_sl / take_partial 不受此限。</span></span>
+          </label>
           <select name="exit_agent_require_confidence_for_exit" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
             {{ $ec := .Settings.ExitAgentRequireConfidenceForExit }}
-            <option value="high"   {{ if eq $ec "high"   }}selected{{ end }}>high — 仅高置信才允许立刻平仓（推荐）</option>
+            <option value="high"   {{ if eq $ec "high"   }}selected{{ end }}>high — 仅高置信才允许立即平仓(推荐)</option>
             <option value="medium" {{ if eq $ec "medium" }}selected{{ end }}>medium — 中置信也允许</option>
-            <option value="low"    {{ if eq $ec "low"    }}selected{{ end }}>low — 低置信也允许（慎用）</option>
+            <option value="low"    {{ if eq $ec "low"    }}selected{{ end }}>low — 低置信也允许(慎用)</option>
           </select>
-          <p class="text-xs text-gray-500 mt-1">
-            <b>作用</b>：exit_now 是不可逆的"全部市价平仓"动作,要求 LLM 至少这个 confidence 才会真执行。
-            达不到 → 决策被强制改写为 hold + 标 <code>constraint_violated:confidence_below_threshold</code>,
-            落表保留审计但不动单。tighten_sl / take_partial 不受此限。
-          </p>
         </div>
         <div>
-          <label class="block text-sm font-medium">反事实窗口（分钟）</label>
+          <label class="block text-sm font-medium">
+            反事实窗口(分钟)
+            <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">决策落库 N 分钟后,exit_outcome worker 拉那一刻的 K 线收盘价回填 <code>if_hold_pnl_pct</code>,告诉你"假如当时不动持仓 N 分钟后是赚还是亏"。<br><br><b>用途</b>:在 <a href="/eval/exit">/eval/exit</a> 看 LLM 是否系统性地误平 / 漏平。<br>默认 60(分钟,与 entry outcome 一致)。</span></span>
+          </label>
           <input type="number" name="exit_agent_horizon_min" value="{{ .Settings.ExitAgentHorizonMin }}" min="5" max="1440" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
-          <p class="text-xs text-gray-500 mt-1">
-            <b>作用</b>：决策落库 N 分钟后,exit_outcome worker 拉那一刻的 K 线收盘价回填 <code>if_hold_pnl_pct</code>,
-            告诉你"假如当时不动持仓 N 分钟后是赚还是亏"。
-            <b>用途</b>：在 <a href="/eval/exit" class="text-blue-600 underline">/eval/exit</a> 看 LLM 是否系统性地误平 / 漏平。
-            默认 60(分钟,与 entry outcome 一致)。
-          </p>
         </div>
         <div>
-          <label class="block text-sm font-medium">单轮最大并发</label>
+          <label class="block text-sm font-medium">
+            单轮最大并发
+            <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">单次扫描里同时向 LLM 发起几路 Decide 请求。<br><b>调大</b>:5 个仓位 4 并发 → 同时进行 LLM 调用,worker 一轮快。<br><b>调小</b>:更稳,但有 N 个仓位时延迟 ≈ N × 单次 LLM 延迟。<br>默认 4,1..32。LLM 提供商有 rate-limit 时调小。</span></span>
+          </label>
           <input type="number" name="exit_agent_max_concurrent" value="{{ .Settings.ExitAgentMaxConcurrent }}" min="1" max="32" class="mt-1 w-full rounded border border-gray-300 px-3 py-2">
-          <p class="text-xs text-gray-500 mt-1">
-            <b>作用</b>：单次扫描里同时向 LLM 发起几路 Decide 请求。
-            <b>调大</b>:5 个仓位 4 并发 → 同时进行 LLM 调用,worker 一轮快。
-            <b>调小</b>:更稳,但有 N 个仓位时延迟 ≈ N × 单次 LLM 延迟。
-            默认 4,1..32。LLM 提供商有 rate-limit 时调小。
-          </p>
         </div>
       </div>
     </div>
 
     <p class="text-xs text-gray-500">
-      worker 修改 enabled 标记后下一个 tick 生效；间隔修改在下一次 tick 后生效。
-      数据落库：<code>market_regime</code> / <code>economic_events</code> / <code>news_snapshots</code> / <code>perp_metrics</code> / <code>agent_exit_decisions</code>。
+      worker 修改启用标记后下一个 tick 生效;间隔修改在下一次 tick 后生效。
     </p>
     <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">保存宏观上下文配置</button>
   </form>
 </div>
 
 <div class="bg-white shadow rounded p-6 mb-6">
-  <h2 class="text-lg font-semibold mb-4">企业微信群机器人通知</h2>
-  <p class="text-sm text-gray-600 mb-3">
-    把 News 评估结果推送到企业微信群。News worker 每次跑完会判断 impact 是否达到阈值，达到才推送。
-  </p>
+  <h2 class="text-lg font-semibold mb-4">
+    企业微信群机器人通知
+    <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">把 News 评估结果推送到企业微信群。News worker 每次跑完会判断 impact 是否达到阈值,达到才推送。</span></span>
+  </h2>
   <details class="bg-gray-50 rounded p-3 mb-4 text-xs">
-    <summary class="cursor-pointer font-semibold">📖 怎么拿 webhook URL（点击展开）</summary>
+    <summary class="cursor-pointer font-semibold">📖 怎么拿 webhook URL(点击展开)</summary>
     <ol class="list-decimal list-inside mt-2 space-y-1 text-gray-700">
-      <li>电脑端打开企业微信，进入要接收消息的群</li>
+      <li>电脑端打开企业微信,进入要接收消息的群</li>
       <li>右上角"…" → "群机器人" → "添加机器人"</li>
-      <li>取个名字（如 "tvbot-news"），头像可选 → "添加"</li>
-      <li>添加成功后会显示 <strong>Webhook 地址</strong>，形如 <code>https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=XXX</code></li>
+      <li>取个名字(如 "tvbot-news"),头像可选 → "添加"</li>
+      <li>添加成功后会显示 <strong>Webhook 地址</strong>,形如 <code>https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=XXX</code></li>
       <li>复制整条地址粘贴到下方"Webhook URL"输入框</li>
     </ol>
-    <p class="mt-2 text-gray-600">⚠ 这个 URL 等于群发权限，**不要泄漏**。</p>
+    <p class="mt-2 text-gray-600">⚠ 这个 URL 等于群发权限,<b>不要泄漏</b>。</p>
   </details>
   <form method="POST" action="/settings/wecom" class="space-y-3 max-w-2xl">
     <label class="flex items-center">
@@ -514,15 +534,17 @@
              class="mt-1 w-full rounded border border-gray-300 px-3 py-2 font-mono text-xs">
     </div>
     <div>
-      <label class="block text-sm font-medium">News 通知阈值（impact 达到此级别才推送）</label>
+      <label class="block text-sm font-medium">
+        News 通知阈值
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">News worker 评出的 impact 达到此级别才推送到企业微信。默认 medium,避免群里被低质消息刷屏。</span></span>
+      </label>
       <select name="news_notify_min_impact" class="mt-1 rounded border border-gray-300 px-3 py-2 text-sm">
         {{ $cur := .Settings.NewsNotifyMinImpact }}
-        <option value="high"   {{ if eq $cur "high" }}selected{{ end }}>high — 仅极端事件（每天 0-3 次）</option>
-        <option value="medium" {{ if or (eq $cur "medium") (eq $cur "") }}selected{{ end }}>medium — 重要事件 (默认，每天 ~10 次)</option>
-        <option value="low"    {{ if eq $cur "low"    }}selected{{ end }}>low — 包括一般信号（每天 ~50 次，可能刷屏）</option>
-        <option value="none"   {{ if eq $cur "none"   }}selected{{ end }}>none — 每次都推（每 15min 一次，会刷屏）</option>
+        <option value="high"   {{ if eq $cur "high" }}selected{{ end }}>high — 仅极端事件(每天 0-3 次)</option>
+        <option value="medium" {{ if or (eq $cur "medium") (eq $cur "") }}selected{{ end }}>medium — 重要事件(默认,每天 ~10 次)</option>
+        <option value="low"    {{ if eq $cur "low"    }}selected{{ end }}>low — 包括一般信号(每天 ~50 次,可能刷屏)</option>
+        <option value="none"   {{ if eq $cur "none"   }}selected{{ end }}>none — 每次都推(每 15min 一次,会刷屏)</option>
       </select>
-      <p class="text-xs text-gray-500 mt-1">默认 medium，避免群里被低质消息刷屏。</p>
     </div>
     <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">保存企业微信配置</button>
   </form>

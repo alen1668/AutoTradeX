@@ -1,18 +1,48 @@
 {{ define "content" }}
 <div class="space-y-4">
   <div>
-    <a href="/eval/exit" class="text-blue-600 hover:underline text-sm">← 返回 Exit Agent 列表</a>
-    <h1 class="text-2xl font-bold mt-1">Exit 决策 #{{ .V.ID }}</h1>
+    <a href="/eval/exit" class="text-blue-600 hover:underline text-sm">← 返回列表</a>
+    <h1 class="text-2xl font-bold mt-1">决策详情 #{{ .V.ID }}</h1>
   </div>
 
   <!-- 元信息 -->
   <div class="bg-white shadow rounded p-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
     <div><div class="text-xs text-gray-500">时间</div><div class="ts-local font-mono text-xs" data-ts="{{ .V.CreatedAtUnix }}">{{ .V.CreatedAtUnix }}</div></div>
-    <div><div class="text-xs text-gray-500">模型</div><div class="font-mono text-xs">{{ .V.Model }}</div></div>
-    <div><div class="text-xs text-gray-500">prompt_hash</div><div class="font-mono text-xs">{{ .V.PromptHash }}</div></div>
-    <div><div class="text-xs text-gray-500">latency / tokens</div><div class="font-mono text-xs">{{ .V.LatencyMs }}ms · {{ .V.TokenIn }}→{{ .V.TokenOut }}</div></div>
-    <div><div class="text-xs text-gray-500">mode</div><div>{{ if eq .V.Mode "shadow" }}<span class="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs">shadow</span>{{ else }}<span class="px-2 py-0.5 bg-purple-100 text-purple-800 rounded text-xs">active</span>{{ end }}</div></div>
-    <div><div class="text-xs text-gray-500">execution</div><div>{{ if .V.ExecutionStatus }}{{ .V.ExecutionStatus }}{{ else }}<span class="text-gray-400">(shadow / hold)</span>{{ end }}</div></div>
+    <div>
+      <div class="text-xs text-gray-500">
+        模型
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">本次决策实际使用的 LLM 模型 ID。</span></span>
+      </div>
+      <div class="font-mono text-xs">{{ .V.Model }}</div>
+    </div>
+    <div>
+      <div class="text-xs text-gray-500">
+        prompt_hash
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">本次发给 LLM 的提示词内容指纹(SHA),用来对比同一时间点不同决策是否基于完全一致的输入。</span></span>
+      </div>
+      <div class="font-mono text-xs">{{ .V.PromptHash }}</div>
+    </div>
+    <div>
+      <div class="text-xs text-gray-500">
+        延迟 / token
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">LLM 调用耗时(毫秒)和输入 → 输出 token 数。token 越多越贵。</span></span>
+      </div>
+      <div class="font-mono text-xs">{{ .V.LatencyMs }}ms · {{ .V.TokenIn }}→{{ .V.TokenOut }}</div>
+    </div>
+    <div>
+      <div class="text-xs text-gray-500">
+        运行模式
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">影子 (shadow) 只写决策表不动单;实盘 (active) 真实改单。</span></span>
+      </div>
+      <div>{{ if eq .V.Mode "shadow" }}<span class="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs">影子</span>{{ else }}<span class="px-2 py-0.5 bg-purple-100 text-purple-800 rounded text-xs">实盘</span>{{ end }}</div>
+    </div>
+    <div>
+      <div class="text-xs text-gray-500">
+        执行结果
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">实盘模式下,该决策对应的真实下单是否成功;影子模式或 hold 不需要执行。</span></span>
+      </div>
+      <div>{{ if .V.ExecutionStatus }}{{ .V.ExecutionStatus }}{{ else }}<span class="text-gray-400">(影子或继续拿)</span>{{ end }}</div>
+    </div>
   </div>
 
   <!-- 持仓快照 -->
@@ -20,12 +50,12 @@
     <h3 class="font-semibold mb-3">持仓快照</h3>
     <table class="w-full text-sm">
       <tr class="border-t"><td class="py-1.5 text-gray-600 w-32">策略</td><td class="font-mono">{{ .V.StrategyID }}</td></tr>
-      <tr class="border-t"><td class="py-1.5 text-gray-600">币种 / 方向</td><td>{{ .V.Symbol }} / {{ .V.Side }}</td></tr>
+      <tr class="border-t"><td class="py-1.5 text-gray-600">币种 / 方向</td><td>{{ .V.Symbol }} / {{ sideCN .V.Side }}</td></tr>
       <tr class="border-t"><td class="py-1.5 text-gray-600">入场 / 当前</td><td class="font-mono">{{ .V.EntryFillPrice }} → {{ .V.CurrentPrice }}</td></tr>
       <tr class="border-t"><td class="py-1.5 text-gray-600">数量</td><td class="font-mono">{{ .V.Qty }}</td></tr>
-      <tr class="border-t"><td class="py-1.5 text-gray-600">未实现 PnL</td><td class="font-mono">{{ .V.UnrealizedPnLUSD }} USD ({{ .V.UnrealizedPnLPct }}%)</td></tr>
+      <tr class="border-t"><td class="py-1.5 text-gray-600">未实现盈亏</td><td class="font-mono">{{ .V.UnrealizedPnLUSD }} USD ({{ .V.UnrealizedPnLPct }}%)</td></tr>
       <tr class="border-t"><td class="py-1.5 text-gray-600">持仓时长</td><td>{{ .V.PositionAgeMin }} 分钟</td></tr>
-      <tr class="border-t"><td class="py-1.5 text-gray-600">当前 SL / TP</td><td class="font-mono">{{ if .V.CurrentSLPrice }}{{ .V.CurrentSLPrice }}{{ else }}-{{ end }} / {{ if .V.CurrentTPPrice }}{{ .V.CurrentTPPrice }}{{ else }}-{{ end }}</td></tr>
+      <tr class="border-t"><td class="py-1.5 text-gray-600">当前 止损 / 止盈</td><td class="font-mono">{{ if .V.CurrentSLPrice }}{{ .V.CurrentSLPrice }}{{ else }}-{{ end }} / {{ if .V.CurrentTPPrice }}{{ .V.CurrentTPPrice }}{{ else }}-{{ end }}</td></tr>
     </table>
   </div>
 
@@ -34,16 +64,19 @@
     <h3 class="font-semibold mb-3">决策</h3>
     <div class="flex items-center gap-3 mb-3">
       <span class="font-bold text-lg">
-        {{ if eq .V.Action "hold" }}<span class="px-3 py-1 bg-gray-100 text-gray-700 rounded">hold</span>
-        {{ else if eq .V.Action "tighten_sl" }}<span class="px-3 py-1 bg-blue-100 text-blue-800 rounded">tighten_sl</span>
-        {{ else if eq .V.Action "take_partial" }}<span class="px-3 py-1 bg-yellow-100 text-yellow-800 rounded">take_partial</span>
-        {{ else if eq .V.Action "exit_now" }}<span class="px-3 py-1 bg-red-100 text-red-800 rounded">exit_now</span>
+        {{ if eq .V.Action "hold" }}<span class="px-3 py-1 bg-gray-100 text-gray-700 rounded">继续拿</span>
+        {{ else if eq .V.Action "tighten_sl" }}<span class="px-3 py-1 bg-blue-100 text-blue-800 rounded">上移止损</span>
+        {{ else if eq .V.Action "take_partial" }}<span class="px-3 py-1 bg-yellow-100 text-yellow-800 rounded">部分止盈</span>
+        {{ else if eq .V.Action "exit_now" }}<span class="px-3 py-1 bg-red-100 text-red-800 rounded">立即平仓</span>
         {{ else }}{{ .V.Action }}{{ end }}
       </span>
-      <span class="text-sm text-gray-600">confidence: <b>{{ .V.Confidence }}</b></span>
+      <span class="text-sm text-gray-600">
+        置信度: <b>{{ .V.Confidence }}</b>
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">LLM 自评 low/medium/high。立即平仓默认要求 high 才执行,可在 settings 调整。</span></span>
+      </span>
     </div>
-    {{ if .V.ProposedSLPrice }}<div class="text-sm mb-1">proposed_sl_price: <span class="font-mono">{{ .V.ProposedSLPrice }}</span></div>{{ end }}
-    {{ if .V.PartialPct }}<div class="text-sm mb-1">partial_pct: <span class="font-mono">{{ .V.PartialPct }}</span></div>{{ end }}
+    {{ if .V.ProposedSLPrice }}<div class="text-sm mb-1">建议新止损价: <span class="font-mono">{{ .V.ProposedSLPrice }}</span></div>{{ end }}
+    {{ if .V.PartialPct }}<div class="text-sm mb-1">部分止盈比例: <span class="font-mono">{{ .V.PartialPct }}</span></div>{{ end }}
     <div class="mt-2 text-sm bg-gray-50 p-3 rounded whitespace-pre-wrap">{{ .V.Reasoning }}</div>
   </div>
 
@@ -56,22 +89,25 @@
 
   <!-- 反事实 -->
   <div class="bg-white shadow rounded p-4">
-    <h3 class="font-semibold mb-3">反事实 (if-hold)</h3>
+    <h3 class="font-semibold mb-3">
+      反事实:不动会怎样
+      <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">决策落库 N 分钟后,系统拉那时的 K 线价格,模拟"如果一直 hold"的浮盈,用来评估这次决策好不好。</span></span>
+    </h3>
     {{ if .V.OutcomeComputedAtUnix }}
       <div class="text-sm space-y-1">
-        <div>horizon: <span class="font-mono">{{ .V.OutcomeHorizonMin }} 分钟</span></div>
-        <div>if_hold_pnl_pct: <span class="font-mono">{{ .V.IfHoldPnLPct }}%</span></div>
-        <div>label:
-          {{ if eq .V.IfHoldLabel "improved" }}<span class="font-bold text-green-700">improved</span> <span class="text-xs text-gray-500">(hold 反而更好,本次决策不该执行)</span>
-          {{ else if eq .V.IfHoldLabel "worsened" }}<span class="font-bold text-red-700">worsened</span> <span class="text-xs text-gray-500">(hold 会更差,本次决策正确)</span>
-          {{ else if eq .V.IfHoldLabel "unchanged" }}<span class="font-bold text-gray-600">unchanged</span> <span class="text-xs text-gray-500">(差异 ≤ 0.1%)</span>
-          {{ else if eq .V.IfHoldLabel "unavailable" }}<span class="text-gray-400">unavailable</span>
-          {{ else }}<span class="text-gray-400">- (无对比基准, V1 简化策略)</span>{{ end }}
+        <div>对照窗口: <span class="font-mono">{{ .V.OutcomeHorizonMin }} 分钟</span></div>
+        <div>不动浮盈 %: <span class="font-mono">{{ .V.IfHoldPnLPct }}%</span></div>
+        <div>结论:
+          {{ if eq .V.IfHoldLabel "improved" }}<span class="font-bold text-red-700">决策失误</span> <span class="text-xs text-gray-500">(不动反而更好,本次决策不该执行)</span>
+          {{ else if eq .V.IfHoldLabel "worsened" }}<span class="font-bold text-green-700">决策正确</span> <span class="text-xs text-gray-500">(不动会更差,本次决策正确)</span>
+          {{ else if eq .V.IfHoldLabel "unchanged" }}<span class="font-bold text-gray-600">差不多</span> <span class="text-xs text-gray-500">(差异 ≤ 0.1%)</span>
+          {{ else if eq .V.IfHoldLabel "unavailable" }}<span class="text-gray-400">无数据</span>
+          {{ else }}<span class="text-gray-400">- (无对比基准)</span>{{ end }}
         </div>
-        <div class="text-xs text-gray-500">computed_at: <span class="ts-local" data-ts="{{ .V.OutcomeComputedAtUnix }}">{{ .V.OutcomeComputedAtUnix }}</span></div>
+        <div class="text-xs text-gray-500">回填时间: <span class="ts-local" data-ts="{{ .V.OutcomeComputedAtUnix }}">{{ .V.OutcomeComputedAtUnix }}</span></div>
       </div>
     {{ else }}
-      <div class="text-sm text-gray-500">(未到 horizon, 等待 ExitOutcomeWorker 回填)</div>
+      <div class="text-sm text-gray-500">(还没到对照时间,等 ExitOutcomeWorker 回填)</div>
     {{ end }}
   </div>
 </div>

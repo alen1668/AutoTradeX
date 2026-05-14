@@ -3,40 +3,74 @@
   <div class="flex items-center justify-between">
     <div>
       <a href="/eval" class="text-blue-600 hover:underline text-sm">← 返回灰度评估</a>
-      <h1 class="text-2xl font-bold mt-1">Exit Agent 决策</h1>
-      <p class="text-gray-600 text-sm mt-1">持仓中 LLM 周期决策 (hold/tighten_sl/take_partial/exit_now)。shadow 模式只写表，active 模式动单。反事实回填 60min 后看"如果 hold 会怎样"。</p>
+      <h1 class="text-2xl font-bold mt-1">
+        持仓中决策 (Exit Agent)
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel"><b>持仓中决策</b>:bot 开仓后,LLM 每 N 分钟回看一次仓位,产出四档动作之一(继续拿/上移止损/部分止盈/全部平仓)。<br>影子模式(shadow)只写决策表不动单,实盘模式(active)真实改单。<br>每条决策 60 分钟后自动回填"如果不动会怎样"作为对照。</span></span>
+      </h1>
     </div>
   </div>
 
   <!-- 统计卡片 -->
   <div class="grid grid-cols-4 md:grid-cols-7 gap-2 text-sm">
     <div class="bg-white shadow rounded p-3"><div class="text-gray-500 text-xs">总数</div><div class="text-xl font-bold">{{ .Stats.Total }}</div></div>
-    <div class="bg-white shadow rounded p-3"><div class="text-gray-500 text-xs">hold</div><div class="text-xl font-bold">{{ .Stats.HoldN }}</div></div>
-    <div class="bg-white shadow rounded p-3"><div class="text-gray-500 text-xs">tighten_sl</div><div class="text-xl font-bold">{{ .Stats.TightenN }}</div></div>
-    <div class="bg-white shadow rounded p-3"><div class="text-gray-500 text-xs">take_partial</div><div class="text-xl font-bold">{{ .Stats.PartialN }}</div></div>
-    <div class="bg-white shadow rounded p-3"><div class="text-gray-500 text-xs">exit_now</div><div class="text-xl font-bold">{{ .Stats.ExitNowN }}</div></div>
-    <div class="bg-white shadow rounded p-3"><div class="text-gray-500 text-xs">improved</div><div class="text-xl font-bold text-green-700">{{ .Stats.ImprovedN }}</div></div>
-    <div class="bg-white shadow rounded p-3"><div class="text-gray-500 text-xs">worsened</div><div class="text-xl font-bold text-red-700">{{ .Stats.WorsenedN }}</div></div>
+    <div class="bg-white shadow rounded p-3">
+      <div class="text-gray-500 text-xs">继续拿
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel"><b>hold</b>:LLM 觉得局面没变化,什么都不做,等下一周期再看。</span></span>
+      </div>
+      <div class="text-xl font-bold">{{ .Stats.HoldN }}</div>
+    </div>
+    <div class="bg-white shadow rounded p-3">
+      <div class="text-gray-500 text-xs">上移止损
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel"><b>tighten_sl</b>:把止损价往盈利方向挪,锁定一部分浮盈;仓位继续持有。</span></span>
+      </div>
+      <div class="text-xl font-bold">{{ .Stats.TightenN }}</div>
+    </div>
+    <div class="bg-white shadow rounded p-3">
+      <div class="text-gray-500 text-xs">部分止盈
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel"><b>take_partial</b>:平 ≤50% 仓位锁定部分利润,剩余继续持有。</span></span>
+      </div>
+      <div class="text-xl font-bold">{{ .Stats.PartialN }}</div>
+    </div>
+    <div class="bg-white shadow rounded p-3">
+      <div class="text-gray-500 text-xs">立即平仓
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel"><b>exit_now</b>:撤所有保护单 + 反向市价全平。不可逆动作,要求高置信度。</span></span>
+      </div>
+      <div class="text-xl font-bold">{{ .Stats.ExitNowN }}</div>
+    </div>
+    <div class="bg-white shadow rounded p-3">
+      <div class="text-gray-500 text-xs">决策失误
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel"><b>improved</b> = 不动浮盈反而更好,说明 LLM 这次出手是错的(早砍了或错过了)。<br>注:仅实盘非 hold 决策会回填。</span></span>
+      </div>
+      <div class="text-xl font-bold text-red-700">{{ .Stats.ImprovedN }}</div>
+    </div>
+    <div class="bg-white shadow rounded p-3">
+      <div class="text-gray-500 text-xs">决策正确
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel"><b>worsened</b> = 不动浮盈反而更差,说明 LLM 这次出手是对的(及时止损或锁利)。<br>注:仅实盘非 hold 决策会回填。</span></span>
+      </div>
+      <div class="text-xl font-bold text-green-700">{{ .Stats.WorsenedN }}</div>
+    </div>
   </div>
 
   <!-- 筛选条 -->
   <form method="get" class="flex gap-2 items-end text-sm bg-white shadow rounded p-3">
     <div>
-      <label class="text-xs text-gray-600 block">mode</label>
+      <label class="text-xs text-gray-600 block">运行模式
+        <span class="tip"><span class="tip-mark">?</span><span class="tip-panel"><b>shadow</b>=影子(只写表,不动单);<b>active</b>=实盘(真实改 SL / 部分平 / 全平)。</span></span>
+      </label>
       <select name="mode" class="border rounded px-2 py-1">
         <option value="" {{ if eq .FilterMode "" }}selected{{ end }}>全部</option>
-        <option value="shadow" {{ if eq .FilterMode "shadow" }}selected{{ end }}>shadow</option>
-        <option value="active" {{ if eq .FilterMode "active" }}selected{{ end }}>active</option>
+        <option value="shadow" {{ if eq .FilterMode "shadow" }}selected{{ end }}>影子 (shadow)</option>
+        <option value="active" {{ if eq .FilterMode "active" }}selected{{ end }}>实盘 (active)</option>
       </select>
     </div>
     <div>
-      <label class="text-xs text-gray-600 block">action</label>
+      <label class="text-xs text-gray-600 block">动作</label>
       <select name="action" class="border rounded px-2 py-1">
         <option value="" {{ if eq .FilterAction "" }}selected{{ end }}>全部</option>
-        <option value="hold" {{ if eq .FilterAction "hold" }}selected{{ end }}>hold</option>
-        <option value="tighten_sl" {{ if eq .FilterAction "tighten_sl" }}selected{{ end }}>tighten_sl</option>
-        <option value="take_partial" {{ if eq .FilterAction "take_partial" }}selected{{ end }}>take_partial</option>
-        <option value="exit_now" {{ if eq .FilterAction "exit_now" }}selected{{ end }}>exit_now</option>
+        <option value="hold" {{ if eq .FilterAction "hold" }}selected{{ end }}>继续拿 (hold)</option>
+        <option value="tighten_sl" {{ if eq .FilterAction "tighten_sl" }}selected{{ end }}>上移止损 (tighten_sl)</option>
+        <option value="take_partial" {{ if eq .FilterAction "take_partial" }}selected{{ end }}>部分止盈 (take_partial)</option>
+        <option value="exit_now" {{ if eq .FilterAction "exit_now" }}selected{{ end }}>立即平仓 (exit_now)</option>
       </select>
     </div>
     <button type="submit" class="px-4 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700">筛选</button>
@@ -45,7 +79,7 @@
   {{ if not .HasRows }}
     <div class="bg-yellow-50 border border-yellow-200 rounded p-4 text-sm">
       <p class="font-semibold text-yellow-900">📭 暂无决策记录</p>
-      <p class="mt-2 text-gray-700">Exit Agent 默认关闭 (settings.exit_agent_enabled=false)；开启后每 5 分钟扫一次 open 持仓。</p>
+      <p class="mt-2 text-gray-700">Exit Agent 默认关闭(在 <a href="/settings" class="text-blue-600 underline">/settings</a> 启用);开启后每 5 分钟扫一次开仓持仓。</p>
     </div>
   {{ else }}
     <div class="bg-white shadow rounded overflow-hidden">
@@ -55,12 +89,27 @@
             <th class="px-3 py-2">时间</th>
             <th class="px-3 py-2">策略</th>
             <th class="px-3 py-2">币 / 方向</th>
-            <th class="px-3 py-2">action</th>
-            <th class="px-3 py-2">conf</th>
-            <th class="px-3 py-2 text-right">PnL%</th>
-            <th class="px-3 py-2">mode</th>
-            <th class="px-3 py-2">exec</th>
-            <th class="px-3 py-2">if_hold</th>
+            <th class="px-3 py-2">
+              动作
+              <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">LLM 给出的本周期决策:继续拿 / 上移止损 / 部分止盈 / 立即平仓。</span></span>
+            </th>
+            <th class="px-3 py-2">
+              置信度
+              <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">LLM 对该决策的自评(low/medium/high)。立即平仓默认要求 high 才执行,可在 settings 调整。</span></span>
+            </th>
+            <th class="px-3 py-2 text-right">浮盈%</th>
+            <th class="px-3 py-2">
+              模式
+              <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">影子模式 (shadow) 只记录决策;实盘模式 (active) 会真实下单。</span></span>
+            </th>
+            <th class="px-3 py-2">
+              执行
+              <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">实盘模式下,本次决策的下单执行结果:✓ 成功 / ✗ 失败 / - 不需要(影子或 hold)。</span></span>
+            </th>
+            <th class="px-3 py-2">
+              不动会怎样
+              <span class="tip"><span class="tip-mark">?</span><span class="tip-panel">决策落库 60 分钟后,系统拉那时的 K 线价计算"如果一直 hold 浮盈会是多少 %",用来评估这次决策好不好。</span></span>
+            </th>
             <th class="px-3 py-2"></th>
           </tr>
         </thead>
@@ -69,19 +118,19 @@
           <tr class="border-t hover:bg-gray-50">
             <td class="px-3 py-2 ts-local font-mono text-xs" data-ts="{{ .CreatedAtUnix }}">{{ .CreatedAtUnix }}</td>
             <td class="px-3 py-2 text-xs font-mono">{{ .StrategyID }}</td>
-            <td class="px-3 py-2 text-xs">{{ .Symbol }} / {{ .Side }}</td>
+            <td class="px-3 py-2 text-xs">{{ .Symbol }} / {{ sideCN .Side }}</td>
             <td class="px-3 py-2">
-              {{ if eq .Action "hold" }}<span class="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs">hold</span>
-              {{ else if eq .Action "tighten_sl" }}<span class="px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs">tighten_sl</span>
-              {{ else if eq .Action "take_partial" }}<span class="px-2 py-0.5 bg-yellow-100 text-yellow-800 rounded text-xs">take_partial</span>
-              {{ else if eq .Action "exit_now" }}<span class="px-2 py-0.5 bg-red-100 text-red-800 rounded text-xs">exit_now</span>
+              {{ if eq .Action "hold" }}<span class="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs">继续拿</span>
+              {{ else if eq .Action "tighten_sl" }}<span class="px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs">上移止损</span>
+              {{ else if eq .Action "take_partial" }}<span class="px-2 py-0.5 bg-yellow-100 text-yellow-800 rounded text-xs">部分止盈</span>
+              {{ else if eq .Action "exit_now" }}<span class="px-2 py-0.5 bg-red-100 text-red-800 rounded text-xs">立即平仓</span>
               {{ else }}{{ .Action }}{{ end }}
             </td>
             <td class="px-3 py-2 text-xs">{{ .Confidence }}</td>
             <td class="px-3 py-2 text-right font-mono text-xs {{ if (and (ne .UnrealizedPnLPct "") (gt .UnrealizedPnLPct "0")) }}text-green-700{{ else }}text-red-700{{ end }}">{{ .UnrealizedPnLPct }}%</td>
             <td class="px-3 py-2 text-xs">
-              {{ if eq .Mode "shadow" }}<span class="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">shadow</span>
-              {{ else }}<span class="px-1.5 py-0.5 bg-purple-100 text-purple-800 rounded text-xs">active</span>{{ end }}
+              {{ if eq .Mode "shadow" }}<span class="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">影子</span>
+              {{ else }}<span class="px-1.5 py-0.5 bg-purple-100 text-purple-800 rounded text-xs">实盘</span>{{ end }}
             </td>
             <td class="px-3 py-2 text-xs">
               {{ if eq .ExecutionStatus "success" }}<span class="text-green-700">✓</span>
@@ -89,12 +138,12 @@
               {{ else }}-{{ end }}
             </td>
             <td class="px-3 py-2 text-xs">
-              {{ if eq .IfHoldLabel "improved" }}<span class="text-green-700">↑ improved</span>
-              {{ else if eq .IfHoldLabel "worsened" }}<span class="text-red-700">↓ worsened</span>
-              {{ else if eq .IfHoldLabel "unchanged" }}<span class="text-gray-600">≈ unchanged</span>
-              {{ else if eq .IfHoldLabel "unavailable" }}<span class="text-gray-400">n/a</span>
+              {{ if eq .IfHoldLabel "improved" }}<span class="text-red-700">✗ 决策失误</span>
+              {{ else if eq .IfHoldLabel "worsened" }}<span class="text-green-700">✓ 决策正确</span>
+              {{ else if eq .IfHoldLabel "unchanged" }}<span class="text-gray-600">≈ 差不多</span>
+              {{ else if eq .IfHoldLabel "unavailable" }}<span class="text-gray-400">无数据</span>
               {{ else if .IfHoldPnLPct }}<span class="font-mono">{{ .IfHoldPnLPct }}%</span>
-              {{ else }}<span class="text-gray-400">pending</span>{{ end }}
+              {{ else }}<span class="text-gray-400">待回填</span>{{ end }}
             </td>
             <td class="px-3 py-2 text-xs"><a class="text-blue-600 hover:underline" href="/eval/exit/{{ .ID }}">详情</a></td>
           </tr>

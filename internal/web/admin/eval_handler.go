@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -484,11 +486,10 @@ func (h *EvalHandler) NewsDetail(w http.ResponseWriter, r *http.Request) {
 					view.Reason = r
 				}
 				if i < len(raws) {
-					if src, ok := raws[i]["source"].(map[string]any); ok {
-						if title, ok := src["title"].(string); ok {
-							view.Source = title
-						}
-					}
+					view.Source = extractNewsSource(raws[i])
+				}
+				if view.Source == "" {
+					view.Source = sourceFromURL(view.URL)
 				}
 				headlines = append(headlines, view)
 			}
@@ -516,6 +517,57 @@ func (h *EvalHandler) NewsDetail(w http.ResponseWriter, r *http.Request) {
 		data = h.statusH.WithStatus(r, data)
 	}
 	h.render.Render(w, http.StatusOK, "eval/news_detail", data)
+}
+
+// extractNewsSource pulls a human-readable source label out of one
+// raw_headlines entry. Different fetchers store the source in different
+// shapes, so we probe in priority order:
+//   - CoinDesk RSS (current default): top-level "source_title" string.
+//   - Generic RSS: top-level "source" string, or "creator".
+//   - CryptoPanic v1: nested {"source": {"title": ...}} object.
+//   - CryptoPanic v2-ish: nested {"source": {"name": ...}} fallback.
+//
+// Returns "" if nothing usable is present — caller may fall back to URL host.
+func extractNewsSource(raw map[string]any) string {
+	if raw == nil {
+		return ""
+	}
+	if s, ok := raw["source_title"].(string); ok && s != "" {
+		return s
+	}
+	switch v := raw["source"].(type) {
+	case string:
+		if v != "" {
+			return v
+		}
+	case map[string]any:
+		if title, ok := v["title"].(string); ok && title != "" {
+			return title
+		}
+		if name, ok := v["name"].(string); ok && name != "" {
+			return name
+		}
+		if code, ok := v["code"].(string); ok && code != "" {
+			return code
+		}
+	}
+	if c, ok := raw["creator"].(string); ok && c != "" {
+		return c
+	}
+	return ""
+}
+
+// sourceFromURL returns the hostname (sans "www.") as a last-resort source
+// label, e.g. "https://www.coindesk.com/markets/foo" → "coindesk.com".
+func sourceFromURL(u string) string {
+	if u == "" {
+		return ""
+	}
+	parsed, err := url.Parse(u)
+	if err != nil || parsed.Host == "" {
+		return ""
+	}
+	return strings.TrimPrefix(parsed.Host, "www.")
 }
 
 func prettyJSON(b []byte) string {
